@@ -1,0 +1,31 @@
+\section{Results}
+\subsection{The mGPS Tool Implementation}
+\begin{enumerate}
+    \item \textbf{Goal of mGPS:} The goal is to predict the geographic origin of microbiomr samples using microbial relateve sequence abundances (RSA) and metadata.
+    \item \textbf{Key Features of mGPS:} It does not require users to tweak complex setting. It mainly focuses on Geographically Informative Taxa.
+    These are sepcific microbial taxa that show unique patterns in certain regions, making them useful for location predictions. 
+    \item \textbf{Process for building the model:}
+    \begin{enumerate}
+        \item \textbf{Selecting the Best Taxa:}
+        \begin{enumerate}
+            \item A method called \textbf{recursive feautre elimination} is used to rank microbial taxa based on how useful they are for predicting geographic locations.
+            \item Only the most informative taxa (GITs) are kept for building the model. 
+        \end{enumerate}
+        \item \textbf{Training the model:}
+        \begin{enumerate}
+            \item The model uses RSA data (the proportion of sequences belonging to each taxon).
+            \item It starts by predicting broad regions like continents.
+            \item Each prediction is then added as extra input to train models for finer levels (e.g., countries, latititude and longitutde) 
+            \item This step-by-step approach helps the model to get better at predicting exact coordinates. 
+        \end{enumerate}
+        \item \textbf{Final Output:} The model predicts the latititude and longitutde of the microbiome samples.
+    \end{enumerate}
+    \item \textbf{Testing mGPS:} To check how well mGPS works, it was tested on different types of microbiome data.
+    \begin{enumerate}
+        \item Urban biome: Data from citites around the world. (Next-generation data)
+        \item Soil biome: Data from soil microbes collected globally. (16srRNA data)
+        \item Marine biome: Data from ocean microbes. (Shotgun Sequencing data)
+    \end{enumerate}
+    \item \textbf{Ensuring Reliability:} Data came from different sequencing methods and platforms, esuring the tool is not tied to specific ways of collecting of proecessing data.
+    The rigorous testing showed that mGPS works across various datasets.
+\end{enumerate}

@@ -1,0 +1,47 @@
+\documentclass{article}
+\usepackage[a4paper,margin=1in]{geometry}
+\usepackage{graphicx}
+\usepackage{amsmath}
+\usepackage{hyperref}
+
+\begin{document}
+
+\title{Microbiome Geographic Population Structure}
+\author{Chandrashekar CR}
+\date{28\textsuperscript{th} March 2025}
+\maketitle
+
+\section{Abstract}
+Over the past decade, large microbiome projects have provided a wealth of sequencing data, 
+revealing that microorganisms are distributed unevenly across different regions. 
+This raises important questions such as:
+
+\begin{itemize}
+    \item How do these microbes move?
+    \item How do antimicrobial resistance genes spread?
+\end{itemize}
+
+To answer these questions, we must first identify which microbes are local to an area and which ones have originated elsewhere. However, existing tools lack the accuracy required to map microbes to specific locations, limiting their practical applications in fields such as medicine and ecology.
+
+In this study, the researchers analyzed microorganisms from urban areas, soil, and marine environments. They discovered that certain microbial species are specific to certain regions, making them useful as \textit{biogeographical markers}. Utilizing this insight, they developed a machine learning tool called \textbf{Microbiome Geographic Population Structure (mGPS)}. This tool uses the relative abundances of microbial sequences to determine the origin of a sample.
+
+The mGPS tool achieved impressive results:
+
+\begin{itemize}
+    \item It correctly identified the city of origin for \textbf{92\%} of samples.
+    \item Within cities, it pinpointed the specific location for \textbf{82\%} of samples, sometimes within a few hundred meters.
+    \item For soil samples, it was \textbf{86\%} accurate, and for marine samples, \textbf{74\%} accurate.
+\end{itemize}
+
+Additionally, mGPS distinguished between local and non-local microorganisms and traced the spread of antimicrobial resistance genes across the globe. Its ability to pinpoint locations (such as water bodies, countries, cities, and transit stations) opens new possibilities for tracking microbiomes in forensics, medicine, and epidemiology.
+
+\include{introduction/intro_mgps_notes_01042025}
+
+\include{results/results_mgps_notes_01042025}
+
+\include{methods/methods_mgps_notes_01042025}
+
+
+
+
+\end{document}
