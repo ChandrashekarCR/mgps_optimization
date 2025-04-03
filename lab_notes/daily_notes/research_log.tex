@@ -1,0 +1,123 @@
+\documentclass{article}
+\usepackage{geometry}
+\geometry{margin=1in}
+\usepackage{titlesec}
+\usepackage{hyperref}
+\usepackage{graphicx}
+\usepackage{fancyhdr}
+\usepackage{enumitem}
+\usepackage{booktabs}
+
+% Header and Footer
+\pagestyle{fancy}
+\fancyhf{}
+\rhead{\textbf{Bioinformatics Research Log}}
+\rfoot{Page \thepage}
+
+% Title format
+\titleformat{\section}{\Large\bfseries}{}{0pt}{}
+
+\title{\textbf{Bioinformatics Research Project Log}}
+\author{Chandrashekar CR \\ Supervisor: Dr. Eran Elhaik \\ Lund University}
+\date{March 31, 2025}
+
+\begin{document}
+
+\maketitle
+\tableofcontents
+\newpage
+
+% March 31, 2025
+\section{March 31, 2025}
+
+\subsection*{Tasks for the Day}
+\begin{itemize}
+    \item Understand the mGPS algorithm from the R code and implement the preprocessing steps.
+    \item Set up the working environment and install all required libraries.
+    \item Begin tracking the project.
+\end{itemize}
+
+\subsection*{Notes and Observations}
+\begin{itemize}
+    \item I am currently using the \texttt{ai\_env} environment from my previous projects and accessing resources on the bioinformatics server.
+    \item I am still struggling to understand the R code, but I expect to progress faster once I grasp the underlying logic.
+\end{itemize}
+
+% April 1, 2025
+\section{April 1, 2025}
+
+\subsection*{Tasks for the Day}
+\begin{itemize}
+    \item Understand and implement Recursive Feature Elimination followed by the XGBoost machine learning algorithm with the correct hierarchical steps.
+    \item Initialize Git for version control and push code to GitHub.
+    \item Gain a deeper understanding of cross-validation.
+\end{itemize}
+
+\subsection*{Notes and Observations}
+\begin{itemize}
+    \item I have understood the general workflow and added comments to the MetaSUB preprocessing script in R.
+    \item I learned about cross-validation and its importance, though I have not yet implemented it.
+\end{itemize}
+
+\subsection*{Pending Tasks}
+\begin{itemize}
+    \item Git tracking for the project has not been set up yet.
+    \item Preprocessing steps are still in progress.
+\end{itemize}
+
+% April 2, 2025
+\section{April 2, 2025}
+
+\subsection*{Tasks for the Day}
+\begin{itemize}
+    \item Ask Vignesh how to access the LUNARC server.
+    \item Reimplement the XGBoost machine learning algorithm with the correct hierarchical steps from the previous day.
+\end{itemize}
+
+\subsection*{Notes and Observations}
+\begin{itemize}
+    \item I initialized Git for the project and started tracking all files except data files and research papers.
+    \item The \texttt{metasub\_global\_git.csv} file contains all the Geographically Informative Taxa (GITs) required for the XGBoost model.
+    \item I realized that I do not need to recreate the exact model; my primary objective is to understand how the input data for XGBoost is preprocessed.
+    \item The key questions to answer: What is the shape of the input data? What are we predicting?
+\end{itemize}
+
+\subsection*{Pending Tasks}
+\begin{itemize}
+    \item Gain access to the LUNARC server.
+\end{itemize}
+
+% April 3, 2025
+\section{April 3, 2025}
+
+\subsection*{Tasks for the Day}
+\begin{itemize}
+    \item Implement basic neural network architectures in PyTorch. The dataset contains \( n \) data points, but hyperparameter tuning has shown that 200 GITs are sufficient for accurate predictions.
+    \item Integrate Ray parallel processing into the hyperparameter optimization process, reducing the search time (currently estimated at 4-5 hours).
+    \item Preprocess the data into numerical format by converting categorical variables (continents and cities) using one-hot encoding or label encoding. One-hot encoding seems to be the safer option.
+    \item Implement stratified K-fold cross-validation before proceeding with a simple neural network model.
+\end{itemize}
+
+\subsection*{Notes and Observations}
+\begin{itemize}
+    \item I successfully logged into the LUNARC server’s login node, but I still need to figure out how to access and use the GPUs for training neural networks.
+    \item Authentication and login are complete, but I still need assistance in understanding the following:
+    \begin{itemize}
+        \item Where my allocated storage is located.
+        \item How to submit jobs using SBATCH.
+        \item I need to learn the basics of working on HPC?
+    \end{itemize}
+    \item After performing Recursive Feature Elimination (RFE), the final dataset was created with a shape of 4070 × 204. Out of the 204 columns, 200 represent the selected features, while the remaining 4 correspond to the target variables.
+    \item Each row in the dataset contains 200 features representing the relative sequence abundance (RSA) of microorganisms. The 4 target columns include the continent, city, latitude, and longitude of the sample collection site.
+    \item The dataset comprises samples collected from 40 unique cities across 7 continents.
+    \item Categorical variables (continent and city) were encoded using \texttt{sklearn}'s \texttt{LabelEncoder}, while latitude and longitude were standardized using \texttt{StandardScaler}.
+    \item Initially, stratified cross-validation was considered for training the neural network. However, this approach was temporarily replaced with \texttt{train\_test\_split} for initial model development. Once the basic neural network is functional, stratified cross-validation will be reconsidered for improved model performance.
+\end{itemize}
+
+\subsubsection*{Neural Network Architecture}
+\begin{itemize}
+    \item The initial model will be a simple feedforward neural network, designed to follow a hierarchical approach similar to the previous study using XGBoost.
+    \item The next step will involve experimenting with single-layer architectures before exploring more complex models such as Convolutional Neural Networks (CNNs) and Recurrent Neural Networks (RNNs).
+\end{itemize}
+
+\end{document}
