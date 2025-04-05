@@ -1,6 +1,6 @@
 # Fdb version 4
-["pdflatex"] 1743684288.6992 "/home/inf-21-2024/binp37/lab_notes/daily_notes/research_log.tex" "research_log.pdf" "research_log" 1743684289.53762 0
-  "/home/inf-21-2024/binp37/lab_notes/daily_notes/research_log.tex" 1743684285.3055 5896 9c8ddd3af0c0e9060d98252110e2349f ""
+["pdflatex"] 1743749886.25557 "/home/inf-21-2024/binp37/lab_notes/daily_notes/research_log.tex" "research_log.pdf" "research_log" 1743749887.02492 0
+  "/home/inf-21-2024/binp37/lab_notes/daily_notes/research_log.tex" 1743749885.88195 7370 4a824bc29cca6eb1c0583f2cdc0e09ad ""
   "/usr/share/texlive/texmf-dist/fonts/enc/dvips/cm-super/cm-super-ts1.enc" 1136849721 2900 1537cc8184ad1792082cd229ecc269f4 ""
   "/usr/share/texlive/texmf-dist/fonts/enc/dvips/lm/lm-mathit.enc" 1202520719 2405 5dcf2c1b967ee25cc46c58cd52244aed ""
   "/usr/share/texlive/texmf-dist/fonts/map/fontname/texfonts.map" 1577235249 3524 cb3e574dea2d1052e39280babc910dc8 ""
@@ -75,10 +75,10 @@
   "/usr/share/texlive/texmf-dist/web2c/texmf.cnf" 1714953600 40900 887e0dc8cac988a9e9c574af364cf837 ""
   "/var/lib/texmf/fonts/map/pdftex/updmap/pdftex.map" 1723566140.73327 561266 c6154d049ec26858a112ddd9bda3a63b ""
   "/var/lib/texmf/web2c/pdftex/pdflatex.fmt" 1741585248 7571397 51b3f46af30adac42531e6c149b0b191 ""
-  "research_log.aux" 1743684289.39063 995 60ca46e755f07b4e5d1d05b3a61d13fb "pdflatex"
-  "research_log.out" 1743684289.39163 461 2688bf1a8fb7c5545725e478843b5ebe "pdflatex"
-  "research_log.tex" 1743684285.3055 5896 9c8ddd3af0c0e9060d98252110e2349f ""
-  "research_log.toc" 1743684289.39263 277 94e94b0d54ba40ff4f9ec1cdb15b0543 "pdflatex"
+  "research_log.aux" 1743749886.87399 1105 6cbf5d3fe8ba87c346ad0b3b81047780 "pdflatex"
+  "research_log.out" 1743749886.87499 575 f66286d153b31e7ea17f7aa573ff6c27 "pdflatex"
+  "research_log.tex" 1743749885.88195 7370 4a824bc29cca6eb1c0583f2cdc0e09ad ""
+  "research_log.toc" 1743749886.87499 346 ebbbdd8b47beae85ed472e0a5bcb60d0 "pdflatex"
   (generated)
   "research_log.aux"
   "research_log.log"

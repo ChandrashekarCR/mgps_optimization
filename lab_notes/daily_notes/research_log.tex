@@ -32,9 +32,9 @@
 
 \subsection*{Tasks for the Day}
 \begin{itemize}
-    \item Understand the mGPS algorithm from the R code and implement the preprocessing steps.
-    \item Set up the working environment and install all required libraries.
-    \item Begin tracking the project.
+    \item Understand the mGPS algorithm from the R code and implement the preprocessing steps. (Done)
+    \item Set up the working environment and install all required libraries. (Done)
+    \item Begin tracking the project. (Done)
 \end{itemize}
 
 \subsection*{Notes and Observations}
@@ -48,8 +48,8 @@
 
 \subsection*{Tasks for the Day}
 \begin{itemize}
-    \item Understand and implement Recursive Feature Elimination followed by the XGBoost machine learning algorithm with the correct hierarchical steps.
-    \item Initialize Git for version control and push code to GitHub.
+    \item Understand and implement Recursive Feature Elimination followed by the XGBoost machine learning algorithm with the correct hierarchical steps. (Done)
+    \item Initialize Git for version control and push code to GitHub. (Done)
     \item Gain a deeper understanding of cross-validation.
 \end{itemize}
 
@@ -61,7 +61,7 @@
 
 \subsection*{Pending Tasks}
 \begin{itemize}
-    \item Git tracking for the project has not been set up yet.
+    \item Git tracking for the project has not been set up yet. (Done)
     \item Preprocessing steps are still in progress.
 \end{itemize}
 
@@ -70,8 +70,8 @@
 
 \subsection*{Tasks for the Day}
 \begin{itemize}
-    \item Ask Vignesh how to access the LUNARC server.
-    \item Reimplement the XGBoost machine learning algorithm with the correct hierarchical steps from the previous day.
+    \item Ask Vignesh how to access the LUNARC server. (Done)
+    \item Reimplement the XGBoost machine learning algorithm with the correct hierarchical steps from the previous day. (I don't need to do that)
 \end{itemize}
 
 \subsection*{Notes and Observations}
@@ -84,7 +84,7 @@
 
 \subsection*{Pending Tasks}
 \begin{itemize}
-    \item Gain access to the LUNARC server.
+    \item Gain access to the LUNARC server. (Done)
 \end{itemize}
 
 % April 3, 2025
@@ -92,10 +92,10 @@
 
 \subsection*{Tasks for the Day}
 \begin{itemize}
-    \item Implement basic neural network architectures in PyTorch. The dataset contains \( n \) data points, but hyperparameter tuning has shown that 200 GITs are sufficient for accurate predictions.
-    \item Integrate Ray parallel processing into the hyperparameter optimization process, reducing the search time (currently estimated at 4-5 hours).
-    \item Preprocess the data into numerical format by converting categorical variables (continents and cities) using one-hot encoding or label encoding. One-hot encoding seems to be the safer option.
-    \item Implement stratified K-fold cross-validation before proceeding with a simple neural network model.
+    \item Implement basic neural network architectures in PyTorch. The dataset contains \( n \) data points, but hyperparameter tuning has shown that 200 GITs are sufficient for accurate predictions. (Done)
+    \item Integrate Ray parallel processing into the hyperparameter optimization process, reducing the search time (currently estimated at 4-5 hours). (Done)
+    \item Preprocess the data into numerical format by converting categorical variables (continents and cities) using one-hot encoding or label encoding. One-hot encoding seems to be the safer option. (Done)
+    \item Implement stratified K-fold cross-validation before proceeding with a simple neural network model. (Will do it later.)
 \end{itemize}
 
 \subsection*{Notes and Observations}
@@ -103,12 +103,12 @@
     \item I successfully logged into the LUNARC server’s login node, but I still need to figure out how to access and use the GPUs for training neural networks.
     \item Authentication and login are complete, but I still need assistance in understanding the following:
     \begin{itemize}
-        \item Where my allocated storage is located.
-        \item How to submit jobs using SBATCH.
-        \item I need to learn the basics of working on HPC?
+        \item \textbf{Where my allocated storage is located?}
+        \item \textbf{How to submit jobs using SBATCH.}
+        \item \textbf{I need to learn the basics of working on HPC?}
     \end{itemize}
     \item After performing Recursive Feature Elimination (RFE), the final dataset was created with a shape of 4070 × 204. Out of the 204 columns, 200 represent the selected features, while the remaining 4 correspond to the target variables.
-    \item Each row in the dataset contains 200 features representing the relative sequence abundance (RSA) of microorganisms. The 4 target columns include the continent, city, latitude, and longitude of the sample collection site.
+    \item Each row in the dataset contains 200 features (GITs) representing the relative sequence abundance (RSA) of microorganisms. The 4 target columns include the continent, city, latitude, and longitude of the sample collection site.
     \item The dataset comprises samples collected from 40 unique cities across 7 continents.
     \item Categorical variables (continent and city) were encoded using \texttt{sklearn}'s \texttt{LabelEncoder}, while latitude and longitude were standardized using \texttt{StandardScaler}.
     \item Initially, stratified cross-validation was considered for training the neural network. However, this approach was temporarily replaced with \texttt{train\_test\_split} for initial model development. Once the basic neural network is functional, stratified cross-validation will be reconsidered for improved model performance.
@@ -116,8 +116,21 @@
 
 \subsubsection*{Neural Network Architecture}
 \begin{itemize}
-    \item The initial model will be a simple feedforward neural network, designed to follow a hierarchical approach similar to the previous study using XGBoost.
-    \item The next step will involve experimenting with single-layer architectures before exploring more complex models such as Convolutional Neural Networks (CNNs) and Recurrent Neural Networks (RNNs).
+    \item The initial model is a simple feedforward neural network inspired by the hierarchical structure used in the previous study with XGBoost.
+    \item The first version of the network includes an input layer with 200 nodes (corresponding to the 200 selected features), followed by two hidden layers with 400 nodes each. This is followed by a smaller hidden layer with 2 nodes, and finally, an output layer with 7 nodes representing the 7 target continents.
+    \item The plan is to first train this model to predict the continent. Then, I will use the predicted probabilities of the continents as additional features by concatenating them with the original 200 input features. This combined input will be used in a second neural network (with a similar architecture) to predict the city.
+    \item I am still unsure how to best handle the latitude and longitude values within the neural network, and this remains an open issue to resolve.
+    \item One major challenge I’ve encountered is the long runtime during training. As I am currently working on the bioinformatics server, which only supports CPU-based computation, training is slow. I require access to GPUs hosted on the LUNARC cluster and need guidance on how to proceed with that setup.
+\end{itemize}
+
+% April 4, 2025
+\section{April 4, 2025}
+
+\subsection*{Tasks for the Day}
+\begin{itemize}
+    \item Finish presentation today for the weekly lab meeting.
+    \item Get GPUs access and understand HPC working architecture. 
+    \item Start the pre-processing for marine and soil data. The pre-processing for metasub, marine and soil data should be written in a modular format for easier excecution of the scripts.
 \end{itemize}
 
 \end{document}
