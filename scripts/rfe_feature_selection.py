@@ -9,7 +9,12 @@ import numpy as np
 import time
 from tqdm import tqdm
 import os
+import argparse
+import sys
 
+
+# Global variables
+DEFAULT_OUTPUT_FILE = os.getcwd()
 
 def parallel_rfe_feature_selection(X: pd.DataFrame, y: pd.Series, n_jobs: int = 1, random_state: int = 123,
                                    cv: int = 10, subsets: list = None, remove_correlated: bool = True,
@@ -34,6 +39,7 @@ def parallel_rfe_feature_selection(X: pd.DataFrame, y: pd.Series, n_jobs: int = 
             - best_accuracy (float): The best mean cross-validation accuracy achieved.
             - results_df (pd.DataFrame): DataFrame containing the mean accuracy for each feature subset size.
             - elapsed_time (float): Total time taken for the feature selection process.
+            - all_supports (dict): Dictionary where keys are (n_features, fold) and values are boolean arrays indicating feature support.
     """
     if ray.is_initialized():
         ray.shutdown()
@@ -85,7 +91,9 @@ def parallel_rfe_feature_selection(X: pd.DataFrame, y: pd.Series, n_jobs: int = 
         pipe.fit(X_train, y_train)
         score = pipe.score(X_test, y_test)
 
-        return n_features, fold, score
+        support = pipe[0].support_ # Get the boolean mask of selected features
+
+        return n_features, fold, score, support
 
     start_time = time.time()
     X_ray = ray.put(X)
@@ -94,11 +102,14 @@ def parallel_rfe_feature_selection(X: pd.DataFrame, y: pd.Series, n_jobs: int = 
              for n_features in n_features_options for fold in range(cv)]
 
     results = []
+    all_supports = {}
     with tqdm(total=total_iterations, desc='Parallel RFE + Cross-validation') as pbar:
         while tasks:
             done, tasks = ray.wait(tasks, num_returns=1)
             result = ray.get(done[0])
-            results.append((result[0], result[2]))  # (n_features, score)
+            n_features_res, fold_res, score_res, support_res = result
+            results.append((n_features_res, score_res))  # (n_features, score)
+            all_supports[(n_features_res, fold_res)] = support_res
             pbar.update(1)
 
     # Aggregate mean accuracy for each feature subset
@@ -117,25 +128,108 @@ def parallel_rfe_feature_selection(X: pd.DataFrame, y: pd.Series, n_jobs: int = 
 
     ray.shutdown()
 
-    return best_params, best_accuracy, results_df, elapsed_time
+    return best_params, best_accuracy, results_df, elapsed_time, all_supports, X
+
+def check_output_path(output_file_path: str) -> str:
+    """
+    Validates the output file path and handles the following scenarios:
+    
+    1. If the provided path is a directory, the output will be saved as 'default_output.txt' in that directory.
+    2. If the path includes a valid directory and filename, use the specified filename.
+    3. If the user provides only a filename without a directory, use the current working directory.
+    4. If the directory is invalid, raise an error and exit.
+
+    Args:
+        output_file_path (str): The path where the output file should be saved.
+
+    Returns:
+        str: The final output file path.
+
+    Raises:
+        FileNotFoundError: If the provided directory does not exist.
+    """
+
+    # Normalize the path and handle relative paths
+    output_file_path = os.path.normpath(output_file_path)
+    print(f"Normalized path: {output_file_path}")
+
+    # Get the current working directory
+    wd = os.getcwd()
+
+    # Case 1: If the provided path is a directory, use 'default_output.txt'
+    if os.path.isdir(output_file_path):
+        print(f"'{output_file_path}' is a directory. Using 'default_output.txt' as the filename.")
+        return os.path.join(output_file_path, 'default_output.txt')
+
+    # Extract the directory and filename from the provided path
+    directory = os.path.dirname(output_file_path)
+    filename = os.path.basename(output_file_path)
+
+    # Case 2: If only a filename is provided without a directory, use the current working directory
+    if not directory:
+        print(f"No directory provided. Using the current directory with filename '{filename}'.")
+        return os.path.join(wd, filename)
+
+    # Case 3: If the directory exists, use the provided filename
+    if os.path.isdir(directory):
+        print(f"Valid directory found. Using '{filename}' as the output file.")
+        return output_file_path
+
+    # Case 4: If the directory is not valid, raise an error
+    try:
+        raise FileNotFoundError(f"The directory '{directory}' is invalid.")
+    except FileNotFoundError as e:
+        print(f"{e} Please try again...")
+        sys.exit(1)
+
 
 
 if __name__ == "__main__":
-    
 
-best_parameters, best_score, all_results, time_taken = parallel_rfe_feature_selection(
-        X=X,
-        y=y,
-        n_jobs=-1,  # Use all available cores for RandomForest within each Ray task
-        random_state=123,
-        cv=5,
-        subsets=[50, 100, 200, 300, 500],
-        remove_correlated=True,
-        correlation_threshold=0.95,
-        num_cpus=50  # Limit Ray to 4 CPUs for this example
+    # Parse command line arguements
+    parser = argparse.ArgumentParser(
+        prog='rfe_feature_selection.py',
+        usage='python rfe_feature_selection.py -i <input processed metadata file> -o <output_file<optional>>',
+        description='This program is used to calculate the best features that can be used to train the neunral network model.'        
     )
+    parser.add_argument('-i','--input_csv_file',dest='csv_file',help='Enter the processed metadata csv file.')
+    parser.add_argument('-o','--output_file',dest='output_file',help='Enter the path of the output file and the name.',default=DEFAULT_OUTPUT_FILE,nargs='?')
 
-print(f'\nBest params: {best_parameters}')
-print(f'Best accuracy: {best_score:.6f}')
-print(f'Mean accuracy for all tested feature subsets:\n{all_results}')
-print(f'Total time taken: {time_taken:.2f} seconds')
+    # Parse arguements
+    args= parser.parse_args()
+
+    data = pd.read_csv(args.csv_file)
+
+
+    best_parameters, best_score, all_results, time_taken, all_supports, return_data = parallel_rfe_feature_selection(
+            X=data.iloc[:,42:],
+            y=data['city'],
+            n_jobs=-1,  # Use all available cores for RandomForest within each Ray task
+            random_state=123,
+            cv=5,
+            subsets=[50,100, 200, 300, 500,1000],
+            remove_correlated=True,
+            correlation_threshold=0.95,
+            num_cpus=50  # Limit Ray to 4 CPUs for this example
+        )
+
+    print(f'\nBest params: {best_parameters}')
+    print(f'Best accuracy: {best_score:.6f}')
+    print(f'Mean accuracy for all tested feature subsets:\n{all_results}')
+    print(f'Total time taken: {time_taken:.2f} seconds')
+
+    # Get the support_ for the best performing number of features (across all folds)
+    best_n_features_from_params = best_parameters['rfe__n_features_to_select']
+    best_supports = {k: v for k, v in all_supports.items() if k[0] == best_n_features_from_params}
+
+    # Store the support arrays for the best models in this variable
+    support_for_best_models = best_supports
+
+    nn_data = pd.concat([data[return_data.columns[support_for_best_models[list(support_for_best_models.keys())[0]]]],data[['city','continent','latitude','longitude']]],axis=1)
+    
+    # Check if the output file path is valid
+    validated_output_file_path = check_output_path(args.output_file)
+    print(validated_output_file_path)
+    
+    # Save the data into csv format
+    nn_data.to_csv(path_or_buf=validated_output_file_path,index=False)
