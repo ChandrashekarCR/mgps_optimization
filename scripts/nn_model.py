@@ -8,69 +8,94 @@ import numpy as np
 import time
 import argparse
 import os
+import matplotlib.pyplot as plt
 
 # Define the neural network modules (as in your original script)
 class NeuralNetContinent(nn.Module):
-    def __init__(self, input_size_continents, num_continents):
-        super().__init__()
+    def __init__(self, input_size_continents, num_continents, dropout_rate=0.5):
+        super(NeuralNetContinent, self).__init__()
         self.layer1 = nn.Linear(input_size_continents, 400)
+        self.dropout1 = nn.Dropout(dropout_rate)
         self.layer2 = nn.Linear(400, 400)
+        self.dropout2 = nn.Dropout(dropout_rate)
         self.layer3 = nn.Linear(400, 200)
+        self.dropout3 = nn.Dropout(dropout_rate)
         self.layer4 = nn.Linear(200, num_continents)
         self.relu = nn.ReLU()
 
     def forward(self, x):
         out = self.relu(self.layer1(x))
+        out = self.dropout1(out)
         out = self.relu(self.layer2(out))
+        out = self.dropout2(out)
         out = self.relu(self.layer3(out))
+        out = self.dropout3(out)
         out = self.layer4(out)
         return out
 
 class NeuralNetCities(nn.Module):
-    def __init__(self, input_size_cities, num_cities):
-        super().__init__()
+    def __init__(self, input_size_cities, num_cities, dropout_rate=0.5):
+        super(NeuralNetCities, self).__init__()
         self.layer1 = nn.Linear(input_size_cities, 400)
+        self.dropout1 = nn.Dropout(dropout_rate)
         self.layer2 = nn.Linear(400, 400)
+        self.dropout2 = nn.Dropout(dropout_rate)
         self.layer3 = nn.Linear(400, 200)
+        self.dropout3 = nn.Dropout(dropout_rate)
         self.layer4 = nn.Linear(200, num_cities)
         self.relu = nn.ReLU()
 
     def forward(self, x):
         out = self.relu(self.layer1(x))
+        out = self.dropout1(out)
         out = self.relu(self.layer2(out))
+        out = self.dropout2(out)
         out = self.relu(self.layer3(out))
+        out = self.dropout3(out)
         out = self.layer4(out)
         return out
 
 class NeuralNetLat(nn.Module):
-    def __init__(self, input_size_lat, lat_size):
-        super().__init__()
+    def __init__(self, input_size_lat, lat_size, dropout_rate=0.5):
+        super(NeuralNetLat, self).__init__()
         self.layer1 = nn.Linear(input_size_lat, 400)
+        self.dropout1 = nn.Dropout(dropout_rate)
         self.layer2 = nn.Linear(400, 400)
+        self.dropout2 = nn.Dropout(dropout_rate)
         self.layer3 = nn.Linear(400, 200)
+        self.dropout3 = nn.Dropout(dropout_rate)
         self.layer4 = nn.Linear(200, lat_size)
         self.relu = nn.ReLU()
 
     def forward(self, x):
         out = self.relu(self.layer1(x))
+        out = self.dropout1(out)
         out = self.relu(self.layer2(out))
+        out = self.dropout2(out)
         out = self.relu(self.layer3(out))
+        out = self.dropout3(out)
         out = self.layer4(out)
         return out
 
 class NeuralNetLong(nn.Module):
-    def __init__(self, input_size_long, long_size):
-        super().__init__()
+    def __init__(self, input_size_long, long_size, dropout_rate=0.5):
+        super(NeuralNetLong, self).__init__()
         self.layer1 = nn.Linear(input_size_long, 400)
+        self.dropout1 = nn.Dropout(dropout_rate)
         self.layer2 = nn.Linear(400, 400)
+        self.dropout2 = nn.Dropout(dropout_rate)
         self.layer3 = nn.Linear(400, 200)
+        self.dropout3 = nn.Dropout(dropout_rate)
         self.layer4 = nn.Linear(200, long_size)
         self.relu = nn.ReLU()
 
     def forward(self, x):
         out = self.relu(self.layer1(x))
+        out = self.dropout1(out)
         out = self.relu(self.layer2(out))
+        out = self.dropout2(out)
         out = self.relu(self.layer3(out))
+        out = self.dropout3(out)
         out = self.layer4(out)
         return out
 
@@ -109,7 +134,7 @@ class CustDat(Dataset):
 # Training loop function
 def training_loop(train_dl, nn_continent_model, nn_cities_model, nn_lat_model, nn_long_model,
                   optimizer_continent, optimizer_cities, optimizer_lat, optimizer_long,
-                  criterion, criterion_lat_lon, device, num_epochs):
+                  criterion, criterion_lat_lon, device, num_epochs,train_losses):
     start_time = time.time()
     for epoch in range(num_epochs):
         epoch_start_time = time.time()
@@ -126,25 +151,25 @@ def training_loop(train_dl, nn_continent_model, nn_cities_model, nn_lat_model, n
             # Forward pass continent
             scores_continent = nn_continent_model(data)
             loss_continents = criterion(scores_continent, continent_city[:, 0])
-            total_loss_continent += loss_continents.item()
+            total_loss_continent += loss_continents.detach().cpu().numpy()
 
             # Forward pass cities
             in_data_cities = torch.cat((data, scores_continent), 1)
             scores_cities = nn_cities_model(in_data_cities)
             loss_cities = criterion(scores_cities, continent_city[:, 1])
-            total_loss_cities += loss_cities.item()
+            total_loss_cities += loss_cities.detach().cpu().numpy()
 
             # Forward pass latitude
             in_data_lat = torch.cat((in_data_cities, scores_cities), 1)
             scores_lat = nn_lat_model(in_data_lat)
             loss_lat = criterion_lat_lon(scores_lat, lat_long[:, 0].unsqueeze(1))
-            total_loss_lat += loss_lat.item()
+            total_loss_lat += loss_lat.detach().cpu().numpy()
 
             # Forward pass longitude
             in_data_long = torch.cat((in_data_lat, scores_lat), 1)
             scores_long = nn_long_model(in_data_long)
             loss_long = criterion_lat_lon(scores_long, lat_long[:, 1].unsqueeze(1))
-            total_loss_long += loss_long.item()
+            total_loss_long += loss_long.detach().cpu().numpy()
 
             # Backward propagation and optimization
             optimizer_long.zero_grad()
@@ -169,6 +194,11 @@ def training_loop(train_dl, nn_continent_model, nn_cities_model, nn_lat_model, n
         avg_loss_cities = total_loss_cities / len(train_dl)
         avg_loss_lat = total_loss_lat / len(train_dl)
         avg_loss_long = total_loss_long / len(train_dl)
+
+        train_losses['continent'].append(avg_loss_continent)
+        train_losses['cities'].append(avg_loss_cities)
+        train_losses['latitude'].append(avg_loss_lat)
+        train_losses['longitude'].append(avg_loss_long)
 
         print(f"\nEpoch {epoch+1}/{num_epochs}, Avg. Loss Continents: {avg_loss_continent:.4f}, Epoch Time: {epoch_duration:.2f} seconds")
         print(f"Epoch {epoch+1}/{num_epochs}, Avg. Loss Cities: {avg_loss_cities:.4f}")
@@ -262,6 +292,22 @@ def check_accuracy(loader, continent_model, cities_model=None, lat_model=None, l
         long_model.train()
 
 
+def plot_losses(train_losses,filename):
+    epochs = range(1, len(train_losses['continent']) + 1)
+    plt.figure(figsize=(10, 6))
+    plt.plot(epochs, train_losses['continent'], 'r-', label='Continent Loss')
+    plt.plot(epochs, train_losses['cities'], 'b-', label='Cities Loss')
+    plt.plot(epochs, train_losses['latitude'], 'g-', label='Latitude Loss')
+    plt.plot(epochs, train_losses['longitude'], 'm-', label='Longitude Loss')
+    plt.title('Training Loss per Epoch')
+    plt.xlabel('Epoch')
+    plt.ylabel('Loss')
+    plt.legend()
+    plt.grid(True)
+    plt.savefig(filename) # Save the plot as an image
+    plt.show()
+
+
 def main(args):
     # Load data
     in_data = load_data(args.data_path)
@@ -310,9 +356,13 @@ def main(args):
     optimizer_long = torch.optim.SGD(nn_long_model.parameters(), lr=learning_rate)
 
     # Train the models
+    train_losses = {'continent':[],
+                    'cities':[],
+                    'latitude':[],
+                    'longitude':[]}
     training_loop(train_dl, nn_continent_model, nn_cities_model, nn_lat_model, nn_long_model,
                   optimizer_continent, optimizer_cities, optimizer_lat, optimizer_long,
-                  criterion, criterion_lat_lon, device, num_epochs)
+                  criterion, criterion_lat_lon, device, num_epochs,train_losses=train_losses)
 
 
     # Check accuracy
@@ -320,6 +370,9 @@ def main(args):
     check_accuracy(train_dl, nn_continent_model, nn_cities_model, nn_lat_model, nn_long_model, device=device)
     print("\nTest Accuracy:")
     check_accuracy(test_dl, nn_continent_model, nn_cities_model, nn_lat_model, nn_long_model, device=device)  
+
+    plot_losses(train_losses,filename='training_losses.png')
+
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Train a hierarchical neural network for location prediction.")
