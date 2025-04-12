@@ -19,7 +19,7 @@
 
 \title{\textbf{Bioinformatics Research Project Log}}
 \author{Chandrashekar CR \\ Supervisor: Dr. Eran Elhaik \\ Lund University}
-\date{March 31, 2025}
+\date{April 10, 2025}
 
 \begin{document}
 
@@ -32,15 +32,15 @@
 
 \subsection*{Tasks for the Day}
 \begin{itemize}
-    \item Understand the mGPS algorithm from the R code and implement the preprocessing steps. (Done)
-    \item Set up the working environment and install all required libraries. (Done)
-    \item Begin tracking the project. (Done)
+    \item Understood the mGPS algorithm from the R code and implemented the preprocessing steps.
+    \item Set up the working environment and installed all required libraries.
+    \item Began tracking the project.
 \end{itemize}
 
 \subsection*{Notes and Observations}
 \begin{itemize}
-    \item I am currently using the \texttt{ai\_env} environment from my previous projects and accessing resources on the bioinformatics server.
-    \item I am still struggling to understand the R code, but I expect to progress faster once I grasp the underlying logic.
+    \item Utilizing the \texttt{ai\_env} environment from previous projects and accessing resources on the bioinformatics server.
+    \item Initial challenges in understanding the R code are anticipated to decrease with further engagement.
 \end{itemize}
 
 % April 1, 2025
@@ -48,21 +48,15 @@
 
 \subsection*{Tasks for the Day}
 \begin{itemize}
-    \item Understand and implement Recursive Feature Elimination followed by the XGBoost machine learning algorithm with the correct hierarchical steps. (Done)
-    \item Initialize Git for version control and push code to GitHub. (Done)
-    \item Gain a deeper understanding of cross-validation.
+    \item Understood and implemented Recursive Feature Elimination followed by the XGBoost machine learning algorithm with the correct hierarchical steps.
+    \item Initialized Git for version control and pushed code to GitHub.
+    \item Gained a deeper understanding of cross-validation principles.
 \end{itemize}
 
 \subsection*{Notes and Observations}
 \begin{itemize}
-    \item I have understood the general workflow and added comments to the MetaSUB preprocessing script in R.
-    \item I learned about cross-validation and its importance, though I have not yet implemented it.
-\end{itemize}
-
-\subsection*{Pending Tasks}
-\begin{itemize}
-    \item Git tracking for the project has not been set up yet. (Done)
-    \item Preprocessing steps are still in progress.
+    \item Achieved a general understanding of the workflow and added comments to the MetaSUB preprocessing script in R.
+    \item Acquired knowledge regarding the importance of cross-validation, although implementation is pending.
 \end{itemize}
 
 % April 2, 2025
@@ -70,21 +64,16 @@
 
 \subsection*{Tasks for the Day}
 \begin{itemize}
-    \item Ask Vignesh how to access the LUNARC server. (Done)
-    \item Reimplement the XGBoost machine learning algorithm with the correct hierarchical steps from the previous day. (I don't need to do that)
+    \item Acquired information from Vignesh regarding access to the LUNARC server.
+    \item Determined that reimplementing the exact XGBoost model is unnecessary; the focus is on understanding the input data preprocessing.
 \end{itemize}
 
 \subsection*{Notes and Observations}
 \begin{itemize}
-    \item I initialized Git for the project and started tracking all files except data files and research papers.
-    \item The \texttt{metasub\_global\_git.csv} file contains all the Geographically Informative Taxa (GITs) required for the XGBoost model.
-    \item I realized that I do not need to recreate the exact model; my primary objective is to understand how the input data for XGBoost is preprocessed.
-    \item The key questions to answer: What is the shape of the input data? What are we predicting?
-\end{itemize}
-
-\subsection*{Pending Tasks}
-\begin{itemize}
-    \item Gain access to the LUNARC server. (Done)
+    \item Git repository initialized for the project, tracking all files except data and research papers.
+    \item The \texttt{metasub\_global\_git.csv} file contains the Geographically Informative Taxa (GITs) required for the XGBoost model.
+    \item The primary objective is to comprehend the preprocessing of input data for XGBoost.
+    \item Key questions identified: What is the shape of the input data? What are the prediction targets?
 \end{itemize}
 
 % April 3, 2025
@@ -92,35 +81,35 @@
 
 \subsection*{Tasks for the Day}
 \begin{itemize}
-    \item Implement basic neural network architectures in PyTorch. The dataset contains \( n \) data points, but hyperparameter tuning has shown that 200 GITs are sufficient for accurate predictions. (Done)
-    \item Integrate Ray parallel processing into the hyperparameter optimization process, reducing the search time (currently estimated at 4-5 hours). (Done)
-    \item Preprocess the data into numerical format by converting categorical variables (continents and cities) using one-hot encoding or label encoding. One-hot encoding seems to be the safer option. (Done)
-    \item Implement stratified K-fold cross-validation before proceeding with a simple neural network model. (Will do it later.)
+    \item Implemented basic neural network architectures in PyTorch. Hyperparameter tuning indicates that 200 GITs are sufficient for accurate predictions, despite the dataset containing \( n \) data points.
+    \item Integrated Ray parallel processing to optimize hyperparameters, aiming to reduce the estimated 4-5 hour search time.
+    \item Preprocessed data into numerical format by converting categorical variables (continents and cities) using one-hot encoding.
+    \item Deferred the implementation of stratified K-fold cross-validation for later.
 \end{itemize}
 
 \subsection*{Notes and Observations}
 \begin{itemize}
-    \item I successfully logged into the LUNARC server’s login node, but I still need to figure out how to access and use the GPUs for training neural networks.
-    \item Authentication and login are complete, but I still need assistance in understanding the following:
+    \item Successfully logged into the LUNARC server's login node, but GPU access and utilization for neural network training require further investigation.
+    \item Authentication and login to LUNARC are complete; however, assistance is needed to understand:
     \begin{itemize}
-        \item \textbf{Where my allocated storage is located?}
-        \item \textbf{How to submit jobs using SBATCH.}
-        \item \textbf{I need to learn the basics of working on HPC?}
+        \item The location of allocated storage.
+        \item The process of submitting jobs using SBATCH.
+        \item The fundamentals of working on High-Performance Computing (HPC).
     \end{itemize}
-    \item After performing Recursive Feature Elimination (RFE), the final dataset was created with a shape of 4070 × 204. Out of the 204 columns, 200 represent the selected features, while the remaining 4 correspond to the target variables.
-    \item Each row in the dataset contains 200 features (GITs) representing the relative sequence abundance (RSA) of microorganisms. The 4 target columns include the continent, city, latitude, and longitude of the sample collection site.
-    \item The dataset comprises samples collected from 40 unique cities across 7 continents.
+    \item Following Recursive Feature Elimination (RFE), the final dataset has a shape of \(4070 \times 204\), with 200 features and 4 target variables.
+    \item Each data point comprises 200 features (GITs) representing the relative sequence abundance (RSA) of microorganisms. The 4 target variables are continent, city, latitude, and longitude.
+    \item The dataset includes samples from 40 unique cities across 7 continents.
     \item Categorical variables (continent and city) were encoded using \texttt{sklearn}'s \texttt{LabelEncoder}, while latitude and longitude were standardized using \texttt{StandardScaler}.
-    \item Initially, stratified cross-validation was considered for training the neural network. However, this approach was temporarily replaced with \texttt{train\_test\_split} for initial model development. Once the basic neural network is functional, stratified cross-validation will be reconsidered for improved model performance.
+    \item Initial consideration of stratified cross-validation was temporarily replaced with \texttt{train\_test\_split} for initial model development. Stratified cross-validation will be revisited for enhanced model performance.
 \end{itemize}
 
 \subsubsection*{Neural Network Architecture}
 \begin{itemize}
-    \item The initial model is a simple feedforward neural network inspired by the hierarchical structure used in the previous study with XGBoost.
-    \item The first version of the network includes an input layer with 200 nodes (corresponding to the 200 selected features), followed by two hidden layers with 400 nodes each. This is followed by a smaller hidden layer with 2 nodes, and finally, an output layer with 7 nodes representing the 7 target continents.
-    \item The plan is to first train this model to predict the continent. Then, I will use the predicted probabilities of the continents as additional features by concatenating them with the original 200 input features. This combined input will be used in a second neural network (with a similar architecture) to predict the city.
-    \item I am still unsure how to best handle the latitude and longitude values within the neural network, and this remains an open issue to resolve.
-    \item One major challenge I’ve encountered is the long runtime during training. As I am currently working on the bioinformatics server, which only supports CPU-based computation, training is slow. I require access to GPUs hosted on the LUNARC cluster and need guidance on how to proceed with that setup.
+    \item The initial model is a simple feedforward neural network, inspired by the hierarchical structure of the previous XGBoost study.
+    \item The first version includes an input layer (200 nodes), two hidden layers (400 nodes each), a smaller hidden layer (2 nodes), and an output layer (7 nodes for the 7 continents).
+    \item The plan is to initially train this model to predict the continent. Subsequently, the predicted continent probabilities will be concatenated with the original 200 features as input for a second neural network (similar architecture) to predict the city.
+    \item The optimal handling of latitude and longitude values within the neural network remains an open question.
+    \item Long training times due to CPU-based computation on the bioinformatics server are a significant challenge. GPU access on the LUNARC cluster is required.
 \end{itemize}
 
 % April 4, 2025
@@ -128,28 +117,56 @@
 
 \subsection*{Tasks for the Day}
 \begin{itemize}
-    \item Finish presentation today for the weekly lab meeting.
-    \item Get GPUs access and understand HPC working architecture. 
-    \item Start the pre-processing for marine and soil data. The pre-processing for metasub, marine and soil data should be written in a modular format for easier excecution of the scripts.
+    \item Finalized the presentation for the weekly lab meeting.
+    \item Focused on obtaining GPU access and understanding HPC architecture.
+    \item Initiated preprocessing for marine and soil datasets, aiming for modular script design applicable to all datasets.
 \end{itemize}
 
 \subsection*{Notes and Observations}
-Read about different implemetation of neural networks. Also did some reading and understanding about HPC.
+Explored various neural network implementations and gained initial understanding of HPC principles.
 
 % April 7, 2025
 \section{April 7, 2025}
 
 \subsection*{Tasks for the Day}
 \begin{itemize}
-    \item Write a proper working neural netowrk that predicts all the target variables (continent, city, latitiude and longitude).
-    \item Finish preprocessing steps for marine dataset and soil dataset.
-    \item Start modularizing all the code so that it can be easily run on the HPC.
+    \item Developed a functional neural network to predict all target variables (continent, city, latitude, and longitude).
+    \item Completed preprocessing steps for marine and soil datasets.
+    \item Began modularizing code for efficient execution on the HPC.
 \end{itemize}
 
 \subsection*{Notes and Observations}
 \begin{itemize}
-    \item Wrote a working script for processing metasub data. I need to do error handling and add function to check if the file format is correct. For now the script works and the preprocessing step also works.
-    \item Wrote a working script to get valid information from the entire dataset using recursive feature elimination, with the base model as random forest.
-    \item Started working the HPC. I understood the basics and now I have started to modularize the script for running them on the HPC GPU compute nodes.
+    \item Developed a working script for MetaSUB data processing, with pending error handling and file format validation.
+    \item Created a working script to extract relevant features using Recursive Feature Elimination with a Random Forest base model.
+    \item Initiated work on the HPC, understanding basic operations and starting to modularize scripts for GPU compute nodes.
 \end{itemize}
+
+% April 8, 2025
+\section{April 8, 2025}
+\subsection*{Notes and Observations}
+\begin{itemize}
+    \item Started building multiple neural network models.
+    \item Began learning batch scripting using SLURM.
+\end{itemize}
+
+% April 10, 2025
+\section{April 10, 2025}
+\subsection*{Notes and Observations}
+\begin{itemize}
+    \item Exploring alternative scaling methods for latitude and longitude, including conversion to radians and trigonometric transformation into a two-dimensional space.
+\end{itemize}
+
+% April 11, 2025
+\section{April 11, 2025}
+\subsection*{Tasks for the day}
+\begin{itemize}
+    \item These are some of my thoughts. The currrent approach is always making a new neural network model from scratch for each dataset. A final model should be made 
+    that utilizes all the iterations done and must work for all type of datasets regardless of the layers of predictions. 
+    \item For example, the MetaSUB dataset contains informaiton on the continent, city, latitude and longitude. Whereas the marine dataset contain information only the sea, latitude and longitude.
+    There should be a way that can handle these cases instead of definfing a newtwork from scratch.
+    \item Finish the logic for the latitude and longitude neural network model. 
+    \item Compare the three models with metasub dataset on accuracy, confusion matrix, plot on world map.
+\end{itemize}
+
 \end{document}

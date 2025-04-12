@@ -115,8 +115,6 @@ def check_output_path(output_file_path: str) -> str:
         sys.exit(1)
 
 if __name__ == "__main__":
-    # Change working directory (as in your notebook)
-    os.chdir(os.getcwd()) # Assuming you run the script from the correct directory
 
     # Parse command line arguments
     parser = argparse.ArgumentParser(

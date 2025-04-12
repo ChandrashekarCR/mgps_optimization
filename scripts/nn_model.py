@@ -8,7 +8,12 @@ import numpy as np
 import time
 import argparse
 import os
+import seaborn as sns
+from sklearn.metrics import confusion_matrix
 import matplotlib.pyplot as plt
+from sklearn.preprocessing import LabelEncoder, StandardScaler
+import geopandas
+from shapely.geometry import Point
 
 # Define the neural network modules (as in your original script)
 class NeuralNetContinent(nn.Module):
@@ -108,6 +113,38 @@ def load_data(data_path):
         print(f"Error: File not found at {data_path}")
         return None
 
+def process_data(in_data):
+    # Initialize label and scalers
+    le_continent = LabelEncoder()
+    le_city = LabelEncoder()
+    stdscaler_lat = StandardScaler() # I can try MinMaxScaler as well
+    stdscaler_long = StandardScaler() # I can try MinMaxScaler as well
+    coordinate_scaler = StandardScaler()
+    # Convert all the categorical variables into numbers
+    in_data['city_encoding'] = in_data[['city']].apply(le_city.fit_transform)
+    in_data['continent_encoding'] = in_data[['continent']].apply(le_continent.fit_transform)
+    in_data['lat_scaled'] = stdscaler_lat.fit_transform(in_data[['latitude']])
+    in_data['long_scaled'] = stdscaler_long.fit_transform(in_data[['longitude']])
+    # Another way of scaling latitiude and longitude data. https://datascience.stackexchange.com/questions/13567/ways-to-deal-with-longitude-latitude-feature 
+    # Convert latitude and longitutde into radians
+    in_data['latitude_rad'] = np.deg2rad(in_data['latitude'])
+    in_data['longitude_rad'] = np.deg2rad(in_data['longitude'])
+
+    # Calculate x, y, z coordinates
+    in_data['x'] = np.cos(in_data['latitude_rad']) * np.cos(in_data['longitude_rad'])
+    in_data['y'] = np.cos(in_data['latitude_rad']) * np.sin(in_data['longitude_rad'])
+    in_data['z'] = np.sin(in_data['latitude_rad'])
+
+    # Scale the x, y, z coordinates together
+    in_data[['scaled_x','scaled_y','scaled_z']] = coordinate_scaler.fit_transform (in_data[['x','y','z']])
+
+    # Encoding dictionary for simpler plotting and understanding the results
+    continent_encoding_map = dict(zip(le_continent.transform(le_continent.classes_), le_continent.classes_))
+    city_encoding_map = dict(zip(le_city.transform(le_city.classes_),le_city.classes_))
+
+    return in_data, le_continent, le_city, stdscaler_lat, stdscaler_long, coordinate_scaler ,continent_encoding_map, city_encoding_map
+
+
 def split_data(in_data, test_size=0.2, random_state=123):
     X = in_data.iloc[:, :200].values.astype(np.float32)
     y = in_data[['continent_encoding', 'city_encoding', 'lat_scaled', 'long_scaled']].values.astype(np.float32)
@@ -134,8 +171,14 @@ class CustDat(Dataset):
 # Training loop function
 def training_loop(train_dl, nn_continent_model, nn_cities_model, nn_lat_model, nn_long_model,
                   optimizer_continent, optimizer_cities, optimizer_lat, optimizer_long,
-                  criterion, criterion_lat_lon, device, num_epochs,train_losses):
+                  criterion, criterion_lat_lon, device, num_epochs):
     start_time = time.time()
+
+    train_losses = {'continent':[],
+                    'cities':[],
+                    'latitude':[],
+                    'longitude':[]}
+
     for epoch in range(num_epochs):
         epoch_start_time = time.time()
         total_loss_continent = 0
@@ -209,13 +252,19 @@ def training_loop(train_dl, nn_continent_model, nn_cities_model, nn_lat_model, n
     total_training_time = end_time - start_time
     print(f"\nTotal Training Time: {total_training_time:.2f} seconds")
 
+    return train_losses
 
+# Check the accuracy of the model on a test dataset
 def check_accuracy(loader, continent_model, cities_model=None, lat_model=None, long_model=None, tolerance_lat=0.1, tolerance_long=0.1, device="cpu"):
     num_correct_continent = 0
     num_samples = 0
     num_correct_cities = 0
     total_absolute_error_lat = 0.0
     total_absolute_error_long = 0.0
+    all_predictions_continents = []
+    all_predictions_cities = []
+    all_labels_continents = []
+    all_labels_cities = []
 
     continent_model.eval()
     if cities_model:
@@ -268,6 +317,11 @@ def check_accuracy(loader, continent_model, cities_model=None, lat_model=None, l
                 absolute_error_long = torch.abs(predicted_long - target_long)
                 total_absolute_error_long += torch.sum(absolute_error_long).item()
 
+            all_predictions_continents.extend(predictions_continent.detach().cpu().numpy())
+            all_labels_continents.extend(target_continent.detach().cpu().numpy())
+            all_predictions_cities.extend(predictions_cities.detach().cpu().numpy())
+            all_labels_cities.extend(target_cities.detach().cpu().numpy())
+
     accuracy_continent = float(num_correct_continent) / float(num_samples) * 100
     print(f'Continent Model Accuracy: {accuracy_continent:.2f}%')
 
@@ -291,7 +345,22 @@ def check_accuracy(loader, continent_model, cities_model=None, lat_model=None, l
     if long_model:
         long_model.train()
 
+    return all_predictions_continents, all_predictions_cities, predicted_lat, predicted_long, all_labels_continents, all_labels_cities, target_lat, target_long 
 
+# Confusion matrix to visualize the labels and predictions that are correct
+def plot_confusion_matrix(labels,predictions,label_map,filename):
+    cm = confusion_matrix(labels,predictions)
+    # Visualize the confusion matrix using seaborn
+    plt.figure(figsize=(len(label_map), len(label_map)))
+    sns.heatmap(cm, annot=True, fmt='d', cmap='Blues',
+                    xticklabels=list(label_map.values()), yticklabels=list(label_map.values()))
+    plt.xlabel('Predicted Continent')
+    plt.ylabel('True Continent')
+    plt.title('Confusion Matrix for Continent Predictions')
+    plt.savefig(filename) # Save the plot as an image
+    plt.show()
+
+# Plot the training losses
 def plot_losses(train_losses,filename):
     epochs = range(1, len(train_losses['continent']) + 1)
     plt.figure(figsize=(10, 6))
@@ -307,6 +376,31 @@ def plot_losses(train_losses,filename):
     plt.savefig(filename) # Save the plot as an image
     plt.show()
 
+# Plot the points on the world map for visualization
+def plot_points_on_world_map(true_lat, true_long, predicted_lat, predicted_long, filename):
+    """Plots true and predicted latitude and longitude on a world map."""
+    world = geopandas.read_file("/home/chandru/binp37/data/geopandas/ne_110m_admin_0_countries.shp")
+    fig, ax = plt.subplots(1, 1, figsize=(12, 6))
+    world.plot(ax=ax, color='lightgray', edgecolor='black')
+
+    # Plot true locations
+    geometry_true = [Point(xy) for xy in zip(true_long, true_lat)]
+    geo_df_true = geopandas.GeoDataFrame(geometry_true, crs=world.crs, geometry=geometry_true)  # Specify geometry
+    geo_df_true.plot(ax=ax, marker='o', color='blue', markersize=15, label='True Locations')
+
+    # Plot predicted locations
+    geometry_predicted = [Point(xy) for xy in zip(predicted_long, predicted_lat)]
+    geo_df_predicted = geopandas.GeoDataFrame(geometry_predicted, crs=world.crs, geometry=geometry_predicted)  # Specify geometry
+    geo_df_predicted.plot(ax=ax, marker='x', color='red', markersize=15, label='Predicted Locations')
+
+    ax.set_xlabel('Longitude')
+    ax.set_ylabel('Latitude')
+    ax.set_title('True vs. Predicted Locations on World Map')
+    ax.legend(loc='upper right')
+    plt.savefig(filename) # Save the plot as an image
+    plt.show()
+
+
 
 def main(args):
     # Load data
@@ -314,6 +408,9 @@ def main(args):
     if in_data is None:
         return
 
+    # Process data into correct format
+    in_data, le_continent, le_city, stdscaler_lat, stdscaler_long, coordinate_scaler, continent_encoding_map, city_encoding_map =  process_data(in_data)
+    
     # Split data
     X_train, X_test, y_train, y_test = split_data(in_data, test_size=args.test_size, random_state=args.random_state)
 
@@ -356,22 +453,31 @@ def main(args):
     optimizer_long = torch.optim.SGD(nn_long_model.parameters(), lr=learning_rate)
 
     # Train the models
-    train_losses = {'continent':[],
-                    'cities':[],
-                    'latitude':[],
-                    'longitude':[]}
-    training_loop(train_dl, nn_continent_model, nn_cities_model, nn_lat_model, nn_long_model,
+    train_losses = training_loop(train_dl, nn_continent_model, nn_cities_model, nn_lat_model, nn_long_model,
                   optimizer_continent, optimizer_cities, optimizer_lat, optimizer_long,
-                  criterion, criterion_lat_lon, device, num_epochs,train_losses=train_losses)
-
+                  criterion, criterion_lat_lon, device, num_epochs)
 
     # Check accuracy
     print("\nTraining Accuracy:")
     check_accuracy(train_dl, nn_continent_model, nn_cities_model, nn_lat_model, nn_long_model, device=device)
     print("\nTest Accuracy:")
-    check_accuracy(test_dl, nn_continent_model, nn_cities_model, nn_lat_model, nn_long_model, device=device)  
+    all_predictions_continents, all_predictions_cities, predicted_lat, \
+    predicted_long, all_labels_continents, all_labels_cities, \
+    target_lat, target_long = check_accuracy(test_dl, nn_continent_model, nn_cities_model, nn_lat_model, nn_long_model, device=device) 
 
+    # Inverse transform the latitude and longitude values
+    true_lat = stdscaler_lat.inverse_transform(target_lat.detach().cpu().numpy())
+    true_long = stdscaler_long.inverse_transform(target_long.detach().cpu().numpy())
+
+    predicted_lat = stdscaler_lat.inverse_transform(predicted_lat.detach().cpu().numpy())
+    predicted_long = stdscaler_lat.inverse_transform(predicted_long.detach().cpu().numpy()) 
+
+
+    # Visualizing the results
     plot_losses(train_losses,filename='training_losses.png')
+    plot_confusion_matrix(all_labels_continents,all_predictions_continents,continent_encoding_map,filename='cofusion_matrix.png')
+    plot_points_on_world_map(true_lat,true_long,predicted_lat,predicted_long,filename='world_map.png')
+
 
 
 if __name__ == "__main__":
