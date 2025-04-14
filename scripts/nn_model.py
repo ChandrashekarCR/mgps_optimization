@@ -7,15 +7,15 @@ import pandas as pd
 import numpy as np
 import time
 import argparse
-import os
-import seaborn as sns
-from sklearn.metrics import confusion_matrix
-import matplotlib.pyplot as plt
-from sklearn.preprocessing import LabelEncoder, StandardScaler
-import geopandas
-from shapely.geometry import Point
+from sklearn.metrics import precision_score, recall_score, f1_score
+from check_accuracy_model import plot_losses, plot_confusion_matrix, plot_points_on_world_map
+from process_data import process_data
 
 # Define the neural network modules (as in your original script)
+# First model - In this model, I made a neural network separate for each hierarchy. The same architechture is followed for 
+# continent level prediction, city level prediction, latitude level prediction and longitude level prediction.
+
+# Continent Neural Network
 class NeuralNetContinent(nn.Module):
     def __init__(self, input_size_continents, num_continents, dropout_rate=0.5):
         super(NeuralNetContinent, self).__init__()
@@ -38,6 +38,7 @@ class NeuralNetContinent(nn.Module):
         out = self.layer4(out)
         return out
 
+# City Neural Network
 class NeuralNetCities(nn.Module):
     def __init__(self, input_size_cities, num_cities, dropout_rate=0.5):
         super(NeuralNetCities, self).__init__()
@@ -60,6 +61,7 @@ class NeuralNetCities(nn.Module):
         out = self.layer4(out)
         return out
 
+# Latitude Neural Network
 class NeuralNetLat(nn.Module):
     def __init__(self, input_size_lat, lat_size, dropout_rate=0.5):
         super(NeuralNetLat, self).__init__()
@@ -82,6 +84,7 @@ class NeuralNetLat(nn.Module):
         out = self.layer4(out)
         return out
 
+# Longitude Neural Network
 class NeuralNetLong(nn.Module):
     def __init__(self, input_size_long, long_size, dropout_rate=0.5):
         super(NeuralNetLong, self).__init__()
@@ -113,37 +116,6 @@ def load_data(data_path):
         print(f"Error: File not found at {data_path}")
         return None
 
-def process_data(in_data):
-    # Initialize label and scalers
-    le_continent = LabelEncoder()
-    le_city = LabelEncoder()
-    stdscaler_lat = StandardScaler() # I can try MinMaxScaler as well
-    stdscaler_long = StandardScaler() # I can try MinMaxScaler as well
-    coordinate_scaler = StandardScaler()
-    # Convert all the categorical variables into numbers
-    in_data['city_encoding'] = in_data[['city']].apply(le_city.fit_transform)
-    in_data['continent_encoding'] = in_data[['continent']].apply(le_continent.fit_transform)
-    in_data['lat_scaled'] = stdscaler_lat.fit_transform(in_data[['latitude']])
-    in_data['long_scaled'] = stdscaler_long.fit_transform(in_data[['longitude']])
-    # Another way of scaling latitiude and longitude data. https://datascience.stackexchange.com/questions/13567/ways-to-deal-with-longitude-latitude-feature 
-    # Convert latitude and longitutde into radians
-    in_data['latitude_rad'] = np.deg2rad(in_data['latitude'])
-    in_data['longitude_rad'] = np.deg2rad(in_data['longitude'])
-
-    # Calculate x, y, z coordinates
-    in_data['x'] = np.cos(in_data['latitude_rad']) * np.cos(in_data['longitude_rad'])
-    in_data['y'] = np.cos(in_data['latitude_rad']) * np.sin(in_data['longitude_rad'])
-    in_data['z'] = np.sin(in_data['latitude_rad'])
-
-    # Scale the x, y, z coordinates together
-    in_data[['scaled_x','scaled_y','scaled_z']] = coordinate_scaler.fit_transform (in_data[['x','y','z']])
-
-    # Encoding dictionary for simpler plotting and understanding the results
-    continent_encoding_map = dict(zip(le_continent.transform(le_continent.classes_), le_continent.classes_))
-    city_encoding_map = dict(zip(le_city.transform(le_city.classes_),le_city.classes_))
-
-    return in_data, le_continent, le_city, stdscaler_lat, stdscaler_long, coordinate_scaler ,continent_encoding_map, city_encoding_map
-
 
 def split_data(in_data, test_size=0.2, random_state=123):
     X = in_data.iloc[:, :200].values.astype(np.float32)
@@ -172,6 +144,7 @@ class CustDat(Dataset):
 def training_loop(train_dl, nn_continent_model, nn_cities_model, nn_lat_model, nn_long_model,
                   optimizer_continent, optimizer_cities, optimizer_lat, optimizer_long,
                   criterion, criterion_lat_lon, device, num_epochs):
+    
     start_time = time.time()
 
     train_losses = {'continent':[],
@@ -190,7 +163,7 @@ def training_loop(train_dl, nn_continent_model, nn_cities_model, nn_lat_model, n
             data = data.to(device=device)
             continent_city = continent_city.to(device=device)
             lat_long = lat_long.to(device=device)
-
+ 
             # Forward pass continent
             scores_continent = nn_continent_model(data)
             loss_continents = criterion(scores_continent, continent_city[:, 0])
@@ -233,6 +206,9 @@ def training_loop(train_dl, nn_continent_model, nn_cities_model, nn_lat_model, n
 
         epoch_end_time = time.time()
         epoch_duration = epoch_end_time - epoch_start_time
+        if (epoch+1) % 10 == 0:
+            print(f"Epoch {epoch+1}/{num_epochs}, Loss (Continent): {loss_continents.item():.4f}, Loss (Cities): {loss_cities.item():.4f}, Loss (Lat): {loss_lat.item():.4f}, Loss (Long): {loss_long.item():.4f}, Epoch Time: {epoch_duration:.2f} seconds")
+
         avg_loss_continent = total_loss_continent / len(train_dl)
         avg_loss_cities = total_loss_cities / len(train_dl)
         avg_loss_lat = total_loss_lat / len(train_dl)
@@ -243,10 +219,6 @@ def training_loop(train_dl, nn_continent_model, nn_cities_model, nn_lat_model, n
         train_losses['latitude'].append(avg_loss_lat)
         train_losses['longitude'].append(avg_loss_long)
 
-        print(f"\nEpoch {epoch+1}/{num_epochs}, Avg. Loss Continents: {avg_loss_continent:.4f}, Epoch Time: {epoch_duration:.2f} seconds")
-        print(f"Epoch {epoch+1}/{num_epochs}, Avg. Loss Cities: {avg_loss_cities:.4f}")
-        print(f"Epoch {epoch+1}/{num_epochs}, Avg. Loss Latitudes: {avg_loss_lat:.4f}")
-        print(f"Epoch {epoch+1}/{num_epochs}, Avg. Loss Longitudes: {avg_loss_long:.4f}")
 
     end_time = time.time()
     total_training_time = end_time - start_time
@@ -255,17 +227,8 @@ def training_loop(train_dl, nn_continent_model, nn_cities_model, nn_lat_model, n
     return train_losses
 
 # Check the accuracy of the model on a test dataset
-def check_accuracy(loader, continent_model, cities_model=None, lat_model=None, long_model=None, tolerance_lat=0.1, tolerance_long=0.1, device="cpu"):
-    num_correct_continent = 0
-    num_samples = 0
-    num_correct_cities = 0
-    total_absolute_error_lat = 0.0
-    total_absolute_error_long = 0.0
-    all_predictions_continents = []
-    all_predictions_cities = []
-    all_labels_continents = []
-    all_labels_cities = []
-
+def check_accuracy(loader, continent_model, cities_model=None, lat_model=None, long_model=None, coordinate_scaler=None, device="cpu"):
+    # Model Evaluation
     continent_model.eval()
     if cities_model:
         cities_model.eval()
@@ -274,27 +237,46 @@ def check_accuracy(loader, continent_model, cities_model=None, lat_model=None, l
     if long_model:
         long_model.eval()
 
+    # Initialize variables for checking accuracy
+    correct_continent = 0
+    num_samples = 0
+    correct_cities = 0
+    total_absolute_error_lat = 0.0
+    total_absolute_error_long = 0.0
+    all_predictions_continents = []
+    all_predictions_cities = []
+    all_labels_continents = []
+    all_labels_cities = []
+    all_predicted_lat = []
+    all_predicted_long = []
+    all_target_lat = []
+    all_target_long = []
+
     with torch.no_grad():
-        for (data, continent_city, lat_long) in loader:
+        for batch_idx, (data, continent_city, lat_long) in enumerate(loader):
+            batch_size = data.size(0)
             data = data.to(device=device)
-            target_continent = continent_city[:, 0].to(device=device)
-            target_cities = continent_city[:, 1].to(device=device)
-            target_lat = lat_long[:, 0].to(device=device).unsqueeze(1) # Ensure correct shape
-            target_long = lat_long[:, 1].to(device=device).unsqueeze(1) # Ensure correct shape
+            target_continent = continent_city[:, 0].long().to(device=device)
+            target_cities = continent_city[:, 1].long().to(device=device)
+            target_lat = lat_long[:, 0].float().to(device=device).unsqueeze(1)  # Ensure correct shape
+            target_long = lat_long[:, 1].float().to(device=device).unsqueeze(1) # Ensure correct shape
 
             # Continent predictions
             scores_continent = continent_model(data)
-            _, predictions_continent = scores_continent.max(1)
-            num_correct_continent += (predictions_continent == target_continent).sum()
-            num_samples += predictions_continent.size(0)
+            _, predictions_continent = torch.max(scores_continent, dim=1)
+            correct_continent += (predictions_continent == target_continent).sum().item()
+            all_predictions_continents.extend(predictions_continent.detach().cpu().numpy())
+            all_labels_continents.extend(target_continent.detach().cpu().numpy())
 
             # Cities predictions (if cities model is provided)
             if cities_model:
                 scores_continent_for_cities = continent_model(data)
                 in_data_cities = torch.cat((data, scores_continent_for_cities), 1)
                 scores_cities = cities_model(in_data_cities)
-                _, predictions_cities = scores_cities.max(1)
-                num_correct_cities += (predictions_cities == target_cities).sum()
+                _, predictions_cities = torch.max(scores_cities, dim=1)
+                correct_cities += (predictions_cities == target_cities).sum().item()
+                all_predictions_cities.extend(predictions_cities.detach().cpu().numpy())
+                all_labels_cities.extend(target_cities.detach().cpu().numpy())
 
             # Latitude predictions (if latitude model is provided)
             if lat_model:
@@ -305,6 +287,8 @@ def check_accuracy(loader, continent_model, cities_model=None, lat_model=None, l
                 predicted_lat = lat_model(in_data_lat)
                 absolute_error_lat = torch.abs(predicted_lat - target_lat)
                 total_absolute_error_lat += torch.sum(absolute_error_lat).item()
+                all_predicted_lat.extend(predicted_lat.detach().cpu().numpy())
+                all_target_lat.extend(target_lat.detach().cpu().numpy())
 
             # Longitude predictions (if longitude model is provided)
             if long_model:
@@ -316,18 +300,31 @@ def check_accuracy(loader, continent_model, cities_model=None, lat_model=None, l
                 predicted_long = long_model(in_data_long)
                 absolute_error_long = torch.abs(predicted_long - target_long)
                 total_absolute_error_long += torch.sum(absolute_error_long).item()
+                all_predicted_long.extend(predicted_long.detach().cpu().numpy())
+                all_target_long.extend(target_long.detach().cpu().numpy())
 
-            all_predictions_continents.extend(predictions_continent.detach().cpu().numpy())
-            all_labels_continents.extend(target_continent.detach().cpu().numpy())
-            all_predictions_cities.extend(predictions_cities.detach().cpu().numpy())
-            all_labels_cities.extend(target_cities.detach().cpu().numpy())
+            num_samples += batch_size
 
-    accuracy_continent = float(num_correct_continent) / float(num_samples) * 100
+    accuracy_continent = float(correct_continent) / float(num_samples) * 100
     print(f'Continent Model Accuracy: {accuracy_continent:.2f}%')
 
+    # Calculate Precision, Recall, and F1-Score for Continents
+    precision_continent = precision_score(all_labels_continents, all_predictions_continents, average='weighted', zero_division=0)
+    recall_continent = recall_score(all_labels_continents, all_predictions_continents, average='weighted', zero_division=0)
+    f1_continent = f1_score(all_labels_continents, all_predictions_continents, average='weighted', zero_division=0)
+    print(f'Continent Model Precision: {precision_continent:.4f}')
+    print(f'Continent Model Recall (Sensitivity): {recall_continent:.4f}')
+    print(f'Continent Model F1-Score: {f1_continent:.4f}')
+
     if cities_model and num_samples > 0:
-        accuracy_cities = float(num_correct_cities) / float(num_samples) * 100
+        accuracy_cities = float(correct_cities) / float(num_samples) * 100
         print(f'Cities Model Accuracy: {accuracy_cities:.2f}%')
+        precision_city = precision_score(all_labels_cities, all_predictions_cities, average='weighted', zero_division=0)
+        recall_city = recall_score(all_labels_cities, all_predictions_cities, average='weighted', zero_division=0)
+        f1_city = f1_score(all_labels_cities, all_predictions_cities, average='weighted', zero_division=0)
+        print(f'Cities Model Precision: {precision_city:.4f}')
+        print(f'Cities Model Recall (Sensitivity): {recall_city:.4f}')
+        print(f'Cities Model F1-Score: {f1_city:.4f}')
 
     if lat_model and num_samples > 0:
         mean_absolute_error_lat = total_absolute_error_lat / num_samples
@@ -345,68 +342,43 @@ def check_accuracy(loader, continent_model, cities_model=None, lat_model=None, l
     if long_model:
         long_model.train()
 
-    return all_predictions_continents, all_predictions_cities, predicted_lat, predicted_long, all_labels_continents, all_labels_cities, target_lat, target_long 
+    if lat_model and long_model and coordinate_scaler is not None:
+        predicted_lat_deg, predicted_long_deg = None, None
+        target_lat_deg, target_long_deg = None, None
+        try:
+            predicted_lat_deg = coordinate_scaler.inverse_transform(np.array(all_predicted_lat).reshape(-1, 1))
+            predicted_long_deg = coordinate_scaler.inverse_transform(np.array(all_predicted_long).reshape(-1, 1))
+            target_lat_deg = coordinate_scaler.inverse_transform(np.array(all_target_lat).reshape(-1, 1))
+            target_long_deg = coordinate_scaler.inverse_transform(np.array(all_target_long).reshape(-1, 1))
+            return all_predictions_continents, all_predictions_cities, predicted_lat_deg, predicted_long_deg, all_labels_continents, all_labels_cities, target_lat_deg, target_long_deg
+        except Exception as e:
+            print(f"Error during inverse transform: {e}")
+            return all_predictions_continents, all_predictions_cities, np.array(all_predicted_lat), np.array(all_predicted_long), all_labels_continents, all_labels_cities, np.array(all_target_lat), np.array(all_target_long)
 
-# Confusion matrix to visualize the labels and predictions that are correct
-def plot_confusion_matrix(labels,predictions,label_map,filename):
-    cm = confusion_matrix(labels,predictions)
-    # Visualize the confusion matrix using seaborn
-    plt.figure(figsize=(len(label_map), len(label_map)))
-    sns.heatmap(cm, annot=True, fmt='d', cmap='Blues',
-                    xticklabels=list(label_map.values()), yticklabels=list(label_map.values()))
-    plt.xlabel('Predicted Continent')
-    plt.ylabel('True Continent')
-    plt.title('Confusion Matrix for Continent Predictions')
-    plt.savefig(filename) # Save the plot as an image
-    plt.show()
+    return all_predictions_continents, all_predictions_cities, np.array(all_predicted_lat), np.array(all_predicted_long), all_labels_continents, all_labels_cities, np.array(all_target_lat), np.array(all_target_long)
 
-# Plot the training losses
-def plot_losses(train_losses,filename):
-    epochs = range(1, len(train_losses['continent']) + 1)
-    plt.figure(figsize=(10, 6))
-    plt.plot(epochs, train_losses['continent'], 'r-', label='Continent Loss')
-    plt.plot(epochs, train_losses['cities'], 'b-', label='Cities Loss')
-    plt.plot(epochs, train_losses['latitude'], 'g-', label='Latitude Loss')
-    plt.plot(epochs, train_losses['longitude'], 'm-', label='Longitude Loss')
-    plt.title('Training Loss per Epoch')
-    plt.xlabel('Epoch')
-    plt.ylabel('Loss')
-    plt.legend()
-    plt.grid(True)
-    plt.savefig(filename) # Save the plot as an image
-    plt.show()
+if __name__ == "__main__":
 
-# Plot the points on the world map for visualization
-def plot_points_on_world_map(true_lat, true_long, predicted_lat, predicted_long, filename):
-    """Plots true and predicted latitude and longitude on a world map."""
-    world = geopandas.read_file("/home/chandru/binp37/data/geopandas/ne_110m_admin_0_countries.shp")
-    fig, ax = plt.subplots(1, 1, figsize=(12, 6))
-    world.plot(ax=ax, color='lightgray', edgecolor='black')
+    # Define argument parser
+    parser = argparse.ArgumentParser(description="Train a hierarchical neural network for location prediction.")
+    parser.add_argument('-d',"--data_path", type=str, required=True, help="Path to the input CSV data file.")
+    parser.add_argument('-t',"--test_size", type=float, default=0.2, help="Fraction of data to use for testing.")
+    parser.add_argument('-r',"--random_state", type=int, default=123, help="Random seed for data splitting.")
+    parser.add_argument('-b',"--batch_size", type=int, default=64, help="Batch size for training.")
+    parser.add_argument('-lr',"--learning_rate", type=float, default=0.001, help="Learning rate for the optimizers.")
+    parser.add_argument('-e',"--epochs", type=int, default=20, help="Number of training epochs.")
+    parser.add_argument('-n',"--num_workers", type=int, default=4, help="Number of workers for DataLoader.")
+    parser.add_argument('-p',"--pin_memory", type=bool, default=False, help="Pin memory for DataLoader (improves performance on CUDA).")
+    parser.add_argument('-c',"--use_cuda", type=bool, default=False, help="Enable CUDA if available.")
+    parser.add_argument('-s',"--save_path", type=str, default=None, help="Path to save the trained models.")
 
-    # Plot true locations
-    geometry_true = [Point(xy) for xy in zip(true_long, true_lat)]
-    geo_df_true = geopandas.GeoDataFrame(geometry_true, crs=world.crs, geometry=geometry_true)  # Specify geometry
-    geo_df_true.plot(ax=ax, marker='o', color='blue', markersize=15, label='True Locations')
-
-    # Plot predicted locations
-    geometry_predicted = [Point(xy) for xy in zip(predicted_long, predicted_lat)]
-    geo_df_predicted = geopandas.GeoDataFrame(geometry_predicted, crs=world.crs, geometry=geometry_predicted)  # Specify geometry
-    geo_df_predicted.plot(ax=ax, marker='x', color='red', markersize=15, label='Predicted Locations')
-
-    ax.set_xlabel('Longitude')
-    ax.set_ylabel('Latitude')
-    ax.set_title('True vs. Predicted Locations on World Map')
-    ax.legend(loc='upper right')
-    plt.savefig(filename) # Save the plot as an image
-    plt.show()
-
-
-
-def main(args):
+    # Parse all the arguments
+    args = parser.parse_args()
+    
     # Load data
     in_data = load_data(args.data_path)
     if in_data is None:
-        return
+        exit()
 
     # Process data into correct format
     in_data, le_continent, le_city, stdscaler_lat, stdscaler_long, coordinate_scaler, continent_encoding_map, city_encoding_map =  process_data(in_data)
@@ -423,6 +395,7 @@ def main(args):
                              num_workers=args.num_workers, pin_memory=args.pin_memory)
 
     # Hyperparameters from arguments
+    # This is a very clumsy approach. This is because we have manually write all the input sizes. Further models have taken care of this problem.
     input_size_continents = 200
     input_size_cities = 207
     input_size_lat = 247
@@ -444,9 +417,11 @@ def main(args):
     nn_lat_model = NeuralNetLat(input_size_lat, lat_size).to(device)
     nn_long_model = NeuralNetLong(input_size_long, long_size).to(device)
 
-    # Define loss functions and optimizers
+    # Define loss functions
     criterion = nn.CrossEntropyLoss()
     criterion_lat_lon = nn.MSELoss()
+
+    # Define optimizers
     optimizer_continent = torch.optim.Adam(nn_continent_model.parameters(), lr=learning_rate)
     optimizer_cities = torch.optim.Adam(nn_cities_model.parameters(), lr=learning_rate)
     optimizer_lat = torch.optim.SGD(nn_lat_model.parameters(), lr=learning_rate)
@@ -457,41 +432,58 @@ def main(args):
                   optimizer_continent, optimizer_cities, optimizer_lat, optimizer_long,
                   criterion, criterion_lat_lon, device, num_epochs)
 
-    # Check accuracy
+    # Check Training accuracy
     print("\nTraining Accuracy:")
     check_accuracy(train_dl, nn_continent_model, nn_cities_model, nn_lat_model, nn_long_model, device=device)
+
+    # Check Testing Accuracy
     print("\nTest Accuracy:")
     all_predictions_continents, all_predictions_cities, predicted_lat, \
     predicted_long, all_labels_continents, all_labels_cities, \
     target_lat, target_long = check_accuracy(test_dl, nn_continent_model, nn_cities_model, nn_lat_model, nn_long_model, device=device) 
 
     # Inverse transform the latitude and longitude values
-    true_lat = stdscaler_lat.inverse_transform(target_lat.detach().cpu().numpy())
-    true_long = stdscaler_long.inverse_transform(target_long.detach().cpu().numpy())
+    true_lat = stdscaler_lat.inverse_transform(target_lat)
+    true_long = stdscaler_long.inverse_transform(target_long)
 
-    predicted_lat = stdscaler_lat.inverse_transform(predicted_lat.detach().cpu().numpy())
-    predicted_long = stdscaler_lat.inverse_transform(predicted_long.detach().cpu().numpy()) 
+    predicted_lat = stdscaler_lat.inverse_transform(predicted_lat)
+    predicted_long = stdscaler_lat.inverse_transform(predicted_long) 
 
+    # Use this case when the latitude and longitude values are not scaled
+    #true_lat, true_long = target_lat.detach().cpu().numpy(), target_long.detach().cpu().numpy()
+    #predicted_lat, predicted_long = predicted_lat.detach().cpu().numpy(), predicted_long.detach().cpu().numpy()
 
     # Visualizing the results
-    plot_losses(train_losses,filename='training_losses.png')
-    plot_confusion_matrix(all_labels_continents,all_predictions_continents,continent_encoding_map,filename='cofusion_matrix.png')
-    plot_points_on_world_map(true_lat,true_long,predicted_lat,predicted_long,filename='world_map.png')
+    plot_losses(train_losses,filename='../results/plots/training_losses_nn_model.png')
+    plot_confusion_matrix(all_labels_continents,all_predictions_continents,continent_encoding_map,filename='../results/plots/cofusion_matrix_nn_model.png')
+    plot_points_on_world_map(true_lat,true_long,predicted_lat,predicted_long,filename='../results/plots/world_map_nn_model.png')
 
 
 
-if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Train a hierarchical neural network for location prediction.")
-    parser.add_argument('-d',"--data_path", type=str, required=True, help="Path to the input CSV data file.")
-    parser.add_argument('-t',"--test_size", type=float, default=0.2, help="Fraction of data to use for testing.")
-    parser.add_argument('-r',"--random_state", type=int, default=123, help="Random seed for data splitting.")
-    parser.add_argument('-b',"--batch_size", type=int, default=64, help="Batch size for training.")
-    parser.add_argument('-lr',"--learning_rate", type=float, default=0.001, help="Learning rate for the optimizers.")
-    parser.add_argument('-e',"--epochs", type=int, default=20, help="Number of training epochs.")
-    parser.add_argument('-n',"--num_workers", type=int, default=4, help="Number of workers for DataLoader.")
-    parser.add_argument('-p',"--pin_memory", type=bool, default=False, help="Pin memory for DataLoader (improves performance on CUDA).")
-    parser.add_argument('-c',"--use_cuda", type=bool, default=False, help="Enable CUDA if available.")
-    parser.add_argument('-s',"--save_path", type=str, default=None, help="Path to save the trained models.")
+"""
+python nn_model.py -d ../results/metasub_training_testing_data.csv -t 0.2 -r 123 -b 128 -n 1 -e 400 -c True
 
-    args = parser.parse_args()
-    main(args)
+Training Accuracy:
+Continent Model Accuracy: 98.25%
+Continent Model Precision: 0.9835
+Continent Model Recall (Sensitivity): 0.9825
+Continent Model F1-Score: 0.9826
+Cities Model Accuracy: 86.18%
+Cities Model Precision: 0.8584
+Cities Model Recall (Sensitivity): 0.8618
+Cities Model F1-Score: 0.8504
+Latitude Model Mean Absolute Error: 0.3303
+Longitude Model Mean Absolute Error: 0.2753
+
+Test Accuracy:
+Continent Model Accuracy: 89.56%
+Continent Model Precision: 0.8950
+Continent Model Recall (Sensitivity): 0.8956
+Continent Model F1-Score: 0.8936
+Cities Model Accuracy: 78.75%
+Cities Model Precision: 0.7759
+Cities Model Recall (Sensitivity): 0.7875
+Cities Model F1-Score: 0.7740
+Latitude Model Mean Absolute Error: 0.3964
+Longitude Model Mean Absolute Error: 0.3445
+"""

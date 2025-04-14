@@ -169,4 +169,73 @@ Explored various neural network implementations and gained initial understanding
     \item Compare the three models with metasub dataset on accuracy, confusion matrix, plot on world map.
 \end{itemize}
 
+% April 14, 2025
+\section{April 14, 2025}
+
+\subsection*{Notes and Observations}
+\begin{itemize}
+    \item \textbf{Combined Models Generally Outperform Separate Models:} Models 2 (nn\_model\_combined.py) and 4 (nn\_combined\_model\_lat\_long.py), which employ combined or hierarchical architectures, tend to show better performance, particularly on the latitude and longitude/XYZ prediction tasks, compared to Model 1 (nn\_model.py) and Model 3 (nn\_model\_lat\_long.py) which use separate networks.
+    
+    \item \textbf{XYZ Coordinate Transformation Seems Beneficial:} Models 3 and 4, which incorporate the transformation of latitude and longitude into XYZ coordinates, demonstrate significantly lower Mean Absolute Errors for these predictions compared to Model 1, which predicts latitude and longitude directly.
+    
+    \item \textbf{Trade-offs Between Classification and Regression:} There isn't one single model that dominates across all tasks. Some models show higher accuracy for continent and city prediction, while others excel in latitude and longitude prediction.
+    
+    \item \textbf{Overfitting:} In several instances, the training accuracy is notably higher than the test accuracy, suggesting some degree of overfitting across the models. This is a common challenge in machine learning and something to consider for future improvements.
+\end{itemize}
+
+\subsection*{Model-by-Model Comparison}
+\begin{itemize}
+    \item \textbf{Model 1: nn\_model.py (Right Top Corner)}
+    \begin{itemize}
+        \item \textbf{Continent Prediction:} Strong test accuracy (89.56\%) with balanced precision, recall, and F1-score.
+        \item \textbf{Cities Prediction:} Lower test accuracy (78.75\%) compared to continent prediction.
+        \item \textbf{Latitude and Longitude Prediction:} High MAEs (0.3964 and 0.3445). Maps show significant spread between predictions and true locations.
+        \item \textbf{Architecture:} Uses separate networks for each task, which may limit learning of shared representations.
+    \end{itemize}
+
+    \item \textbf{Model 2: nn\_model\_combined.py (Left Bottom Corner)}
+    \begin{itemize}
+        \item \textbf{Continent Prediction:} Slightly lower test accuracy (88.33\%) than Model 1.
+        \item \textbf{Cities Prediction:} Improved test accuracy (81.82\%) with higher precision and F1-score.
+        \item \textbf{Latitude and Longitude Prediction:} Lowest MAEs (0.2230 and 0.1876). Very accurate predictions, as confirmed by maps.
+        \item \textbf{Architecture:} Hierarchical structure facilitates learning between tasks.
+    \end{itemize}
+
+    \item \textbf{Model 3: nn\_model\_lat\_long.py (Right Bottom Corner)}
+    \begin{itemize}
+        \item \textbf{Continent Prediction:} High test accuracy (89.31\%).
+        \item \textbf{Cities Prediction:} Lowest test accuracy (75.92\%) among all models.
+        \item \textbf{Latitude and Longitude Prediction:} Very high MAEs (8.5982 and 21.2971). Severe scatter on maps.
+        \item \textbf{Architecture:} Uses XYZ internally but has poor coordinate prediction, possibly due to flawed transformations or output layers.
+    \end{itemize}
+
+    \item \textbf{Model 4: nn\_combined\_model\_lat\_long.py (Left Top Corner)}
+    \begin{itemize}
+        \item \textbf{Continent Prediction:} Slightly lower test accuracy (87.35\%).
+        \item \textbf{Cities Prediction:} Highest test accuracy (82.92\%) among all models.
+        \item \textbf{Latitude and Longitude Prediction:} Low MAEs (4.5070 and 14.4377), but not as low as Model 2.
+        \item \textbf{Architecture:} Combines hierarchical structure with XYZ usage, effective for cities and coordinates.
+    \end{itemize}
+\end{itemize}
+
+\subsection*{Comparative Analysis and Best Model}
+\begin{itemize}
+    \item \textbf{Best for Coordinates:} Model 2 clearly outperforms others in latitude and longitude prediction.
+    \item \textbf{Best for Cities:} Model 4 achieves the highest accuracy.
+    \item \textbf{Continent Accuracy:} All models perform similarly well.
+    \item \textbf{Overall Best Model:} Model 2 (nn\_model\_combined.py) is the most well-rounded, offering competitive classification accuracy and the best coordinate prediction performance.
+\end{itemize}
+
+\subsection*{Opportunities for Improvement}
+\begin{itemize}
+    \item \textbf{Reduce Overfitting:} Apply techniques like dropout, L1/L2 regularization, or early stopping.
+    \item \textbf{Fix Model 3:} Investigate XYZ conversion and back-transformation.
+    \item \textbf{Refine Hierarchical Designs:} Experiment with alternative fusion strategies or attention mechanisms.
+    \item \textbf{Ensemble Strategies:} Combining predictions may improve performance across tasks.
+\end{itemize}
+
+
+
+
+
 \end{document}
