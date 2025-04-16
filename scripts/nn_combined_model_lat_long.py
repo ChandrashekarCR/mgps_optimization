@@ -7,8 +7,9 @@ import pandas as pd
 import numpy as np
 import time
 import argparse
+from sklearn.model_selection import KFold
 from sklearn.metrics import precision_score, recall_score, f1_score
-from check_accuracy_model import plot_losses, plot_confusion_matrix, plot_points_on_world_map
+from check_accuracy_model import plot_losses, plot_confusion_matrix, plot_points_on_world_map, pull_land, plot_predictions_with_coastline, calculate_mae_km
 from process_data import process_data
 
 
@@ -155,8 +156,10 @@ def training_loop(train_dl, combined_model, optimizer_combined, criterion_contin
     
         epoch_end_time = time.time()
         epoch_duration = epoch_end_time - epoch_start_time
-        if (epoch+1) % 10 == 0:
-            print(f"Epoch {epoch+1}/{num_epochs}, Loss (Continent): {loss_continents.item():.4f}, Loss (Cities): {loss_cities.item():.4f}, Loss (XYZ): {loss_xyz.item():.4f}, Epoch Time: {epoch_duration:.2f} seconds")
+        if (epoch+1) % 80 == 0:
+            print(f"Epoch {epoch+1}/{num_epochs}, Loss (Continent): {loss_continents.item():.4f}, \
+                  Loss (Cities): {loss_cities.item():.4f}, Loss (XYZ): {loss_xyz.item():.4f}, \
+                    Epoch Time: {epoch_duration:.2f} seconds")
 
         avg_loss_continent = total_loss_continent / len(train_dl)
         avg_loss_cities = total_loss_cities / len(train_dl)
@@ -283,7 +286,177 @@ def check_combined_accuracy(loader, model, coordinate_scaler=None, device="cpu")
     print(f'Combined Model - Latitude Mean Absolute Error: {mean_absolute_error_lat:.4f}')
     print(f'Combined Model - Longitude Mean Absolute Error: {mean_absolute_error_long:.4f}')
 
-    return all_predictions_continents, all_predictions_cities, np.array([predicted_lat_deg, predicted_long_deg]).T, all_labels_continents, all_labels_cities, np.array([target_lat_deg, target_long_deg]).T
+    return accuracy_continent, accuracy_cities, precision_continent, recall_continent, f1_continent, \
+           precision_city, recall_city, f1_city, mean_absolute_error_lat, mean_absolute_error_long, \
+           all_predictions_continents, all_predictions_cities, np.array([predicted_lat_deg, predicted_long_deg]).T, \
+           all_labels_continents, all_labels_cities, np.array([target_lat_deg, target_long_deg]).T
+
+def cross_validated_training_testing(in_data,X,y,random_state,batch_size,num_workers,pin_memory,learning_rate,epochs):
+
+    # Define the K-Fold split
+    kf = KFold(n_splits=5, shuffle=True, random_state=random_state)
+
+    # Store the validation metrics
+    all_fold_train_losses = []
+    all_fold_val_results = [] # To store validation metrics for each fold
+
+    for fold, (train_index,val_index) in enumerate(kf.split(X)):
+        print(f"\n--- Fold {fold+1} ---")
+
+        X_train_fold, X_val_fold = X[train_index], X[val_index]
+        y_train_fold, y_val_fold = y[train_index], y[val_index]
+
+        train_dataset_fold = CustDat(X_train_fold,y_train_fold)
+        val_dataset_fold = CustDat(X_val_fold, y_val_fold)
+
+        train_dl_fold = DataLoader(train_dataset_fold,batch_size=batch_size,shuffle=True,num_workers=num_workers,pin_memory=pin_memory)
+        val_dl_fold = DataLoader(val_dataset_fold,batch_size=batch_size,shuffle=False,num_workers=num_workers,pin_memory=pin_memory)
+
+        # Initialize model, optimizer and the loss function for each fold
+
+        # Hyperparameters
+        input_size = 200
+        num_continent = len(in_data['continent_encoding'].unique())
+        num_cities = len(in_data['city_encoding'].unique())
+        learning_rate = 0.001
+        learning_rate = learning_rate
+        num_epochs = epochs
+
+        # Determine device
+        device = "cuda" if torch.cuda.is_available() and args.use_cuda else "cpu"
+        print(f"Using device: {device}")
+
+
+        combined_model = CombinedNeuralNetXYZModel(input_size=input_size, num_continent=num_continent, num_cities=num_cities).to(device=device)
+        
+        # Loss functions and optimizers
+        criterion_continent = nn.CrossEntropyLoss()
+        criterion_cities = nn.CrossEntropyLoss()
+        criterion_lat_lon = nn.MSELoss()
+        optimizer_combined = torch.optim.Adam(combined_model.parameters(), lr=learning_rate)
+
+        # Train the model for the current fold
+        train_losses_fold = training_loop(train_dl_fold, combined_model, optimizer_combined, criterion_continent,
+                                           criterion_cities, criterion_lat_lon, device, num_epochs=args.epochs)
+        all_fold_train_losses.append(train_losses_fold)
+
+        # Evaluate on the validation set for the current fold
+        print("\nValidation Accuracy (Fold {}):".format(fold + 1))
+        val_continent_accuracy, val_cities_accuracy, val_precision_continent, val_recall_continent, val_f1_continent, \
+        val_precision_city, val_recall_city, val_f1_city, val_lat_mae, val_long_mae, \
+        val_predictions_continents, val_predictions_cities, val_predicted_lat_long_deg, \
+        val_labels_continents, val_labels_cities, val_targ_lat_long_deg = \
+            check_combined_accuracy(val_dl_fold, combined_model, coordinate_scaler, device)
+
+        all_fold_val_results.append((val_continent_accuracy, val_cities_accuracy, val_precision_continent,
+                                     val_recall_continent, val_f1_continent, val_precision_city,
+                                     val_recall_city, val_f1_city, val_lat_mae, val_long_mae))
+
+    # After all folds, average the validation results
+    print("\n--- Average Validation Results Across All Folds ---")
+    avg_val_continent_accuracy = np.mean([res[0] for res in all_fold_val_results])
+    avg_val_cities_accuracy = np.mean([res[1] for res in all_fold_val_results])
+    avg_val_precision_continent = np.mean([res[2] for res in all_fold_val_results])
+    avg_val_recall_continent = np.mean([res[3] for res in all_fold_val_results])
+    avg_val_f1_continent = np.mean([res[4] for res in all_fold_val_results])
+    avg_val_precision_city = np.mean([res[5] for res in all_fold_val_results])
+    avg_val_recall_city = np.mean([res[6] for res in all_fold_val_results])
+    avg_val_f1_city = np.mean([res[7] for res in all_fold_val_results])
+    avg_val_lat_mae = np.mean([res[8] for res in all_fold_val_results])
+    avg_val_long_mae = np.mean([res[9] for res in all_fold_val_results])
+
+    print(f'Average Validation Continent Accuracy: {avg_val_continent_accuracy:.2f}%')
+    print(f'Average Validation Continent Precision: {avg_val_precision_continent:.4f}')
+    print(f'Average Validation Continent Recall: {avg_val_recall_continent:.4f}')
+    print(f'Average Validation Continent F1-Score: {avg_val_f1_continent:.4f}')
+    print(f'Average Validation Cities Accuracy: {avg_val_cities_accuracy:.2f}%')
+    print(f'Average Validation Cities Precision: {avg_val_precision_city:.4f}')
+    print(f'Average Validation Cities Recall: {avg_val_recall_city:.4f}')
+    print(f'Average Validation Cities F1-Score: {avg_val_f1_city:.4f}')
+    print(f'Average Validation Latitude Mean Absolute Error: {avg_val_lat_mae:.4f}')
+    print(f'Average Validation Longitude Mean Absolute Error: {avg_val_long_mae:.4f}')
+
+    # Finally, train your model on the entire training set and evaluate on the original test set
+    print("\n--- Training on the Entire Training Set and Evaluating on Test Set ---")
+    train_dataset_full = CustDat(X_train, y_train)
+    train_dl_full = DataLoader(train_dataset_full, batch_size=args.batch_size, shuffle=True, num_workers=args.num_workers, pin_memory=args.pin_memory)
+
+    final_model = CombinedNeuralNetXYZModel(input_size=input_size, num_continent=num_continent, num_cities=num_cities).to(device)
+    optimizer_final = torch.optim.Adam(final_model.parameters(), lr=learning_rate)
+    criterion_continent_final = nn.CrossEntropyLoss()
+    criterion_cities_final = nn.CrossEntropyLoss()
+    criterion_lat_lon_final = nn.MSELoss()
+
+    final_train_losses = training_loop(train_dl_full, final_model, optimizer_final, criterion_continent_final,
+                                        criterion_cities_final, criterion_lat_lon_final, device, num_epochs=args.epochs)
+
+    print("\nFinal Model - Training Accuracy:")
+    check_combined_accuracy(train_dl_full, final_model, coordinate_scaler, device)
+    print("\nFinal Model - Test Accuracy:")
+    accuracy_continent_test, accuracy_cities_test, precision_continent_test, recall_continent_test, f1_continent_test, \
+    precision_city_test, recall_city_test, f1_city_test, mae_lat_test, mae_long_test, \
+    all_predictions_continents_test, all_predictions_cities_test, predicted_lat_long_deg_test, \
+    all_labels_continents_test, all_labels_cities_test, targ_lat_long_deg_test = \
+            check_combined_accuracy(test_dl, final_model, coordinate_scaler, device)
+    
+    
+
+    # Predictions dataframe
+    predictions_df = pd.DataFrame({
+        'predicted_lat': predicted_lat_long_deg_test[:,0],
+        'predicted_lon': predicted_lat_long_deg_test[:,1],
+        'true_latitude': targ_lat_long_deg_test[:,0],
+        'true_longitude': targ_lat_long_deg_test[:,1]
+    })
+
+       
+    # Run the coastline pulling function
+    updated_predictions_df = pull_land(
+    df=predictions_df.copy(),
+    coastline_path="/home/chandru/binp37/data/geopandas/ne_110m_coastline.shp",
+    countries_path="/home/chandru/binp37/data/geopandas/ne_110m_admin_0_countries.shp",
+    lat_col='predicted_lat',
+    lon_col='predicted_lon'
+    )
+
+    # Now call the plotting function
+    plot_predictions_with_coastline(
+    predictions_df=updated_predictions_df,
+    coastline_path="/home/chandru/binp37/data/geopandas/ne_110m_coastline.shp",
+    lat_col='predicted_lat',
+    lon_col='predicted_lon',
+    updated_lat_col='updated_lat',  # Now the updated values are in these columns
+    updated_lon_col='updated_lon',
+    true_lat_col='true_latitude',
+    true_lon_col='true_longitude',
+    filename='/home/chandru/binp37/results/plots/predictions_vs_adjusted_coastline_correct.png'
+    )
+
+    # Calculate Mean Absolute Error in kilometers
+    mae_lat_km, mae_lon_km = calculate_mae_km(
+    updated_predictions_df,
+    predicted_lat_col='updated_lat',
+    predicted_lon_col='updated_lon',
+    true_lat_col='true_latitude',
+    true_lon_col='true_longitude'
+    )
+
+
+    print(f"\nMean Absolute Error (km) - Latitude: {mae_lat_km:.4f}")
+    print(f"Mean Absolute Error (km) - Longitude: {mae_lon_km:.4f}")
+
+    predicted_lat_test, predicted_long_test, true_lat_test, true_long_test = updated_predictions_df['updated_lat'].values, \
+                                                                            updated_predictions_df['updated_lon'].values, \
+                                                                            updated_predictions_df['true_latitude'].values, \
+                                                                            updated_predictions_df['true_longitude'].values
+
+
+    # Visualizing the results of the final model on the test set
+    plot_losses(final_train_losses, filename='../results/plots/final_training_losses_nn_combined_model_lat_long.png')
+    plot_confusion_matrix(all_labels_continents_test, all_predictions_continents_test, continent_encoding_map, filename='../results/plots/final_cofusion_matrix_nn_combined_model_lat_long.png')
+    plot_confusion_matrix(all_labels_cities_test,all_predictions_cities_test,city_encoding_map,filename='../results/plots/final_confusion_matrix_nn_combined_model_lat_long.png')
+    plot_points_on_world_map(true_lat_test, true_long_test, predicted_lat_test, predicted_long_test, filename='../results/plots/final_world_map_nn_combined_model_lat_long.png')
+
 
 
 
@@ -309,6 +482,7 @@ if __name__ == "__main__":
     
     # Process data into correct format
     in_data, le_continent, le_city, stdscaler_lat, stdscaler_long, coordinate_scaler, continent_encoding_map, city_encoding_map =  process_data(in_data)
+       
     
     # Split data
     X_train, X_test, y_train, y_test = split_data(in_data, test_size=args.test_size, random_state=args.random_state)
@@ -320,7 +494,13 @@ if __name__ == "__main__":
     test_dl = DataLoader(CustDat(X_test, y_test),
                              batch_size=args.batch_size, shuffle=False,
                              num_workers=args.num_workers, pin_memory=args.pin_memory)
+    
+    cross_validated_training_testing(in_data=in_data,X = in_data.iloc[:, :200].values.astype(np.float32),
+                                     y = in_data[['continent_encoding', 'city_encoding', 'scaled_x','scaled_y','scaled_z']].values.astype(np.float32),
+                                     random_state=args.random_state,batch_size=args.batch_size,num_workers=args.num_workers,
+                                     pin_memory=args.pin_memory,learning_rate=args.learning_rate,epochs=args.epochs)
 
+    '''
     # Hyperparameters
     input_size = 200
     num_continent = len(in_data['continent_encoding'].unique())
@@ -340,7 +520,7 @@ if __name__ == "__main__":
     criterion_continent = nn.CrossEntropyLoss()
     criterion_cities = nn.CrossEntropyLoss()
     criterion_lat_lon = nn.MSELoss()
-    optimizer_combined = torch.optim.Adam(combined_model.parameters(), lr=learning_rate)
+    optimizer_combined = torch.optim.Adam(combined_model.parameters(), lr=learning_rate, weight_decay=0.00001)
     
     # Train the models
     train_losses = training_loop(train_dl,combined_model=combined_model,num_epochs=num_epochs,optimizer_combined=optimizer_combined,
@@ -364,7 +544,7 @@ if __name__ == "__main__":
     plot_confusion_matrix(all_labels_continents,all_predictions_continents,continent_encoding_map,filename='../results/plots/cofusion_matrix_nn_combined_model_lat_long.png')
     plot_points_on_world_map(true_lat,true_long,predicted_lat,predicted_long,filename='../results/plots/world_map_nn_combined_model_lat_long.png')
 
-
+'''
 """
 python nn_combined_model_lat_long.py -d ../results/metasub_training_testing_data.csv -t 0.2 -r 123 -b 128 -n 1 -e 400 -c True
 

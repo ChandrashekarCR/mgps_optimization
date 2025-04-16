@@ -7,12 +7,14 @@ import numpy as np
 
 # Function to process the data to feed it into the neural network
 def process_data(in_data):
+
     # Initialize label and scalers
     le_continent = LabelEncoder()
     le_city = LabelEncoder()
     stdscaler_lat = StandardScaler() # I can try MinMaxScaler as well
     stdscaler_long = StandardScaler() # I can try MinMaxScaler as well
     coordinate_scaler = StandardScaler()
+    
     # Convert all the categorical variables into numbers
     in_data['city_encoding'] = in_data[['city']].apply(le_city.fit_transform)
     in_data['continent_encoding'] = in_data[['continent']].apply(le_continent.fit_transform)
