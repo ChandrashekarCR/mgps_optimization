@@ -190,27 +190,32 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(
         prog='rfe_feature_selection.py',
         usage='python rfe_feature_selection.py -i <input processed metadata file> -o <output_file<optional>>',
-        description='This program is used to calculate the best features that can be used to train the neunral network model.'        
+        description='This program is used to calculate the best features that can be used to train the neural network model.'        
     )
     parser.add_argument('-i','--input_csv_file',dest='csv_file',help='Enter the processed metadata csv file.')
+    parser.add_argument('-s','--start_taxa_column',dest='start_index',help='Enter the starting column number of the taxa. (python indexing)',type=int)
+    #parser.add_argument('-e','--end_taxa_column',dest='end_index',help='Enter the ending column number of the taxa. (python indexing)', type=int)
+    parser.add_argument('-p','--prediction_column',dest='prediction_column',help='Enter the column to be predicted on', type=str)
     parser.add_argument('-o','--output_file',dest='output_file',help='Enter the path of the output file and the name.',default=DEFAULT_OUTPUT_FILE,nargs='?')
+    
 
     # Parse arguements
     args= parser.parse_args()
+    #exit()
 
     data = pd.read_csv(args.csv_file)
-
+    
 
     best_parameters, best_score, all_results, time_taken, all_supports, return_data = parallel_rfe_feature_selection(
-            X=data.iloc[:,42:],
-            y=data['city'],
+            X=data.iloc[:,args.start_index:],
+            y=data[args.prediction_column],
             n_jobs=-1,  # Use all available cores for RandomForest within each Ray task
             random_state=123,
             cv=5,
-            subsets=[50,100, 200, 300, 500,1000],
+            subsets=[200],#[200, 300, 400, 500,1000, 1500],
             remove_correlated=True,
             correlation_threshold=0.95,
-            num_cpus=50  # Limit Ray to 4 CPUs for this example
+            num_cpus=20  # Limit Ray to 4 CPUs for this example
         )
 
     print(f'\nBest params: {best_parameters}')
@@ -225,7 +230,7 @@ if __name__ == "__main__":
     # Store the support arrays for the best models in this variable
     support_for_best_models = best_supports
 
-    nn_data = pd.concat([data[return_data.columns[support_for_best_models[list(support_for_best_models.keys())[0]]]],data[['city','continent','latitude','longitude']]],axis=1)
+    nn_data = pd.concat([data[return_data.columns[support_for_best_models[list(support_for_best_models.keys())[0]]]],data[[args.prediction_column,'continent','latitude','longitude']]],axis=1)
     
     # Check if the output file path is valid
     validated_output_file_path = check_output_path(args.output_file)
@@ -233,3 +238,8 @@ if __name__ == "__main__":
     
     # Save the data into csv format
     nn_data.to_csv(path_or_buf=validated_output_file_path,index=False)
+
+
+# python rfe_feature_selection.py -i ../results/processed_metasub.csv -o ../results/metasub_training_testing_400.csv -s 42 -p city
+
+# python rfe_feature_selection.py -i ../results/metasub/tax_metasub_data.csv -o ../results/metasub/tax_metasub_training_testing.csv -s 5 -p city
