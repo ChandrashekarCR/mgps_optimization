@@ -298,3 +298,4 @@ if __name__ == "__main__":
 
 # python main.py --continent -d ../../results/metasub_training_testing_data.csv -b 32 -lr 0.001 -n 1 -e 200 -c True 
 
+# srun --partition=gpua40i --gres=gpu:1 --time=01:00:00 --nodes=1 --ntasks-per-node=4 --cpus-per-task=1 --mem=16GB --pty bash -i

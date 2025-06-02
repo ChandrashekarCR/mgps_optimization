@@ -194,16 +194,16 @@ if __name__ == "__main__":
     )
     parser.add_argument('-i','--input_csv_file',dest='csv_file',help='Enter the processed metadata csv file.')
     parser.add_argument('-s','--start_taxa_column',dest='start_index',help='Enter the starting column number of the taxa. (python indexing)',type=int)
-    #parser.add_argument('-e','--end_taxa_column',dest='end_index',help='Enter the ending column number of the taxa. (python indexing)', type=int)
     parser.add_argument('-p','--prediction_column',dest='prediction_column',help='Enter the column to be predicted on', type=str)
     parser.add_argument('-o','--output_file',dest='output_file',help='Enter the path of the output file and the name.',default=DEFAULT_OUTPUT_FILE,nargs='?')
-    
+    parser.add_argument('--num_cpus', dest='num_cpus', help='Number of CPUs for Ray',type=int, default=None)
 
     # Parse arguements
     args= parser.parse_args()
-    #exit()
+
 
     data = pd.read_csv(args.csv_file)
+    print(f"\nData loaded successfully. Shape: {data.shape}")
     
 
     best_parameters, best_score, all_results, time_taken, all_supports, return_data = parallel_rfe_feature_selection(
@@ -212,10 +212,10 @@ if __name__ == "__main__":
             n_jobs=-1,  # Use all available cores for RandomForest within each Ray task
             random_state=123,
             cv=5,
-            subsets=[200],#[200, 300, 400, 500,1000, 1500],
+            subsets=[200],# [200,300,400,500,1000,1500]
             remove_correlated=True,
             correlation_threshold=0.95,
-            num_cpus=20  # Limit Ray to 4 CPUs for this example
+            num_cpus=args.num_cpus  # Limit Ray to 4 CPUs for this example
         )
 
     print(f'\nBest params: {best_parameters}')
@@ -241,5 +241,3 @@ if __name__ == "__main__":
 
 
 # python rfe_feature_selection.py -i ../results/processed_metasub.csv -o ../results/metasub_training_testing_400.csv -s 42 -p city
-
-# python rfe_feature_selection.py -i ../results/metasub/tax_metasub_data.csv -o ../results/metasub/tax_metasub_training_testing.csv -s 5 -p city
