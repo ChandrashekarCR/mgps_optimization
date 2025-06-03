@@ -1,4 +1,0 @@
-data,batch_size,learning_rate,epochs,hidden_dim,initial_dropout,max_dropout,patience,input_size,accuracy_continent,precision_continent,recall_continent,f1_continent
-../../results/metasub/tax_metasub_data.csv,32,0.001,40,64,0.2,0.7,40,4009,73.58722358722358,0.7829765292238611,0.7358722358722358,0.7493646913275889
-../../results/metasub/tax_metasub_data.csv,32,0.001,400,64,0.2,0.7,40,4009,82.80098280098281,0.8489252686492829,0.828009828009828,0.8324969797863818
-../../results/metasub/tax_metasub_data.csv,64,0.001,400,128,0.2,0.7,40,4009,83.66093366093365,0.8631965478168928,0.8366093366093366,0.8455257448655702

@@ -17,7 +17,6 @@ from scripts.metasub.process_transfrom_data import process_transform_data
 from scripts.metasub.nn_architecture.nn_continent.nn_continent_model import CombinedNeuralNetXYZModel
 from scripts.metasub.accuracy_metrics.calculate_model_accuracy import check_combined_accuracy
 from scripts.metasub.helper_plots.plotting import PredictionMetrics
-#from scripts.metasub.nn_architecture.nn_latlong.nn_latlong_model import CombinedNeuralNetCNNXYZModel, augment_data_with_lat_lon_noise
 
 
 # --- Custom Dataset ---
@@ -176,18 +175,6 @@ if __name__ == "__main__":
 
     print(f"Task settings — Continent: {args.continent}, City: {args.city}, XYZ: {args.xyz}")
 
-    #Hyperparameters
-    batch_size = args.batch_size
-    learning_rate = args.learning_rate
-    epochs = args.epochs
-    hidden_dim = 64
-    initial_dropout = args.initial_dropout
-    max_dropout = args.max_dropout
-    patience = args.patience
-    input_size = 200
-
-
-
 
     # Load and preprocess data
     in_data, X, y, le_continent, le_city, coordinate_scaler, \
@@ -206,9 +193,6 @@ if __name__ == "__main__":
     "patience": args.patience,
     "input_size": X_train.shape[1]}
 
-    # Augment Data
-    #X_train_augmented, y_train_augmented = augment_data_with_lat_lon_noise(X_train, y_train)
-
     # Create DataLoaders - Train, Validate and Test
     train_dl = DataLoader(CustDat(X_train, y_train),
                               batch_size=hyperparams['batch_size'], shuffle=True,
@@ -223,10 +207,7 @@ if __name__ == "__main__":
                              batch_size=hyperparams['batch_size'], shuffle=False,
                              num_workers=args.num_workers, pin_memory=args.pin_memory)
     
-    #train_dl_augmented = DataLoader(CustDat(X_train_augmented, y_train_augmented),
-    #                             batch_size=hyperparams['batch_size'], shuffle=True,
-    #                             num_workers=args.num_workers, pin_memory=args.pin_memory)
-
+ 
     # Device
     device = "cuda" if torch.cuda.is_available() else "cpu"
     print(f"Using device: {device}")
