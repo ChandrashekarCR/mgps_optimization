@@ -1,0 +1,268 @@
+.
+├── bin
+├── data
+│   ├── geopandas
+│   │   ├── 110m_cultural.zip
+│   │   ├── CHANGELOG
+│   │   ├── ne_110m_admin_0_boundary_lines_land.cpg
+│   │   ├── ne_110m_admin_0_boundary_lines_land.dbf
+│   │   ├── ne_110m_admin_0_boundary_lines_land.prj
+│   │   ├── ne_110m_admin_0_boundary_lines_land.README.html
+│   │   ├── ne_110m_admin_0_boundary_lines_land.shp
+│   │   ├── ne_110m_admin_0_boundary_lines_land.shx
+│   │   ├── ne_110m_admin_0_boundary_lines_land.VERSION.txt
+│   │   ├── ne_110m_admin_0_countries.cpg
+│   │   ├── ne_110m_admin_0_countries.dbf
+│   │   ├── ne_110m_admin_0_countries_lakes.cpg
+│   │   ├── ne_110m_admin_0_countries_lakes.dbf
+│   │   ├── ne_110m_admin_0_countries_lakes.prj
+│   │   ├── ne_110m_admin_0_countries_lakes.README.html
+│   │   ├── ne_110m_admin_0_countries_lakes.shp
+│   │   ├── ne_110m_admin_0_countries_lakes.shx
+│   │   ├── ne_110m_admin_0_countries_lakes.VERSION.txt
+│   │   ├── ne_110m_admin_0_countries.prj
+│   │   ├── ne_110m_admin_0_countries.README.html
+│   │   ├── ne_110m_admin_0_countries.shp
+│   │   ├── ne_110m_admin_0_countries.shx
+│   │   ├── ne_110m_admin_0_countries.VERSION.txt
+│   │   ├── ne_110m_admin_0_map_units.cpg
+│   │   ├── ne_110m_admin_0_map_units.dbf
+│   │   ├── ne_110m_admin_0_map_units.prj
+│   │   ├── ne_110m_admin_0_map_units.README.html
+│   │   ├── ne_110m_admin_0_map_units.shp
+│   │   ├── ne_110m_admin_0_map_units.shx
+│   │   ├── ne_110m_admin_0_map_units.VERSION.txt
+│   │   ├── ne_110m_admin_0_pacific_groupings.cpg
+│   │   ├── ne_110m_admin_0_pacific_groupings.dbf
+│   │   ├── ne_110m_admin_0_pacific_groupings.prj
+│   │   ├── ne_110m_admin_0_pacific_groupings.README.html
+│   │   ├── ne_110m_admin_0_pacific_groupings.shp
+│   │   ├── ne_110m_admin_0_pacific_groupings.shx
+│   │   ├── ne_110m_admin_0_pacific_groupings.VERSION.txt
+│   │   ├── ne_110m_admin_0_scale_rank.cpg
+│   │   ├── ne_110m_admin_0_scale_rank.dbf
+│   │   ├── ne_110m_admin_0_scale_rank.prj
+│   │   ├── ne_110m_admin_0_scale_rank.README.html
+│   │   ├── ne_110m_admin_0_scale_rank.shp
+│   │   ├── ne_110m_admin_0_scale_rank.shx
+│   │   ├── ne_110m_admin_0_scale_rank.VERSION.txt
+│   │   ├── ne_110m_admin_0_sovereignty.cpg
+│   │   ├── ne_110m_admin_0_sovereignty.dbf
+│   │   ├── ne_110m_admin_0_sovereignty.prj
+│   │   ├── ne_110m_admin_0_sovereignty.README.html
+│   │   ├── ne_110m_admin_0_sovereignty.shp
+│   │   ├── ne_110m_admin_0_sovereignty.shx
+│   │   ├── ne_110m_admin_0_sovereignty.VERSION.txt
+│   │   ├── ne_110m_admin_0_tiny_countries.cpg
+│   │   ├── ne_110m_admin_0_tiny_countries.dbf
+│   │   ├── ne_110m_admin_0_tiny_countries.prj
+│   │   ├── ne_110m_admin_0_tiny_countries.README.html
+│   │   ├── ne_110m_admin_0_tiny_countries.shp
+│   │   ├── ne_110m_admin_0_tiny_countries.shx
+│   │   ├── ne_110m_admin_0_tiny_countries.VERSION.txt
+│   │   ├── ne_110m_admin_1_states_provinces.cpg
+│   │   ├── ne_110m_admin_1_states_provinces.dbf
+│   │   ├── ne_110m_admin_1_states_provinces_lakes.cpg
+│   │   ├── ne_110m_admin_1_states_provinces_lakes.dbf
+│   │   ├── ne_110m_admin_1_states_provinces_lakes.prj
+│   │   ├── ne_110m_admin_1_states_provinces_lakes.README.html
+│   │   ├── ne_110m_admin_1_states_provinces_lakes.shp
+│   │   ├── ne_110m_admin_1_states_provinces_lakes.shx
+│   │   ├── ne_110m_admin_1_states_provinces_lakes.VERSION.txt
+│   │   ├── ne_110m_admin_1_states_provinces_lines.cpg
+│   │   ├── ne_110m_admin_1_states_provinces_lines.dbf
+│   │   ├── ne_110m_admin_1_states_provinces_lines.prj
+│   │   ├── ne_110m_admin_1_states_provinces_lines.README.html
+│   │   ├── ne_110m_admin_1_states_provinces_lines.shp
+│   │   ├── ne_110m_admin_1_states_provinces_lines.shx
+│   │   ├── ne_110m_admin_1_states_provinces_lines.VERSION.txt
+│   │   ├── ne_110m_admin_1_states_provinces.prj
+│   │   ├── ne_110m_admin_1_states_provinces.README.html
+│   │   ├── ne_110m_admin_1_states_provinces.sbn
+│   │   ├── ne_110m_admin_1_states_provinces.sbx
+│   │   ├── ne_110m_admin_1_states_provinces_scale_rank.cpg
+│   │   ├── ne_110m_admin_1_states_provinces_scale_rank.dbf
+│   │   ├── ne_110m_admin_1_states_provinces_scale_rank.prj
+│   │   ├── ne_110m_admin_1_states_provinces_scale_rank.README.html
+│   │   ├── ne_110m_admin_1_states_provinces_scale_rank.shp
+│   │   ├── ne_110m_admin_1_states_provinces_scale_rank.shx
+│   │   ├── ne_110m_admin_1_states_provinces_scale_rank.VERSION.txt
+│   │   ├── ne_110m_admin_1_states_provinces.shp
+│   │   ├── ne_110m_admin_1_states_provinces.shx
+│   │   ├── ne_110m_admin_1_states_provinces.VERSION.txt
+│   │   ├── ne_110m_coastline.cpg
+│   │   ├── ne_110m_coastline.dbf
+│   │   ├── ne_110m_coastline.prj
+│   │   ├── ne_110m_coastline.README.html
+│   │   ├── ne_110m_coastline.shp
+│   │   ├── ne_110m_coastline.shx
+│   │   ├── ne_110m_coastline.VERSION.txt
+│   │   ├── ne_110m_coastline.zip
+│   │   ├── ne_110m_populated_places.cpg
+│   │   ├── ne_110m_populated_places.dbf
+│   │   ├── ne_110m_populated_places.prj
+│   │   ├── ne_110m_populated_places.README.html
+│   │   ├── ne_110m_populated_places.shp
+│   │   ├── ne_110m_populated_places.shx
+│   │   ├── ne_110m_populated_places_simple.cpg
+│   │   ├── ne_110m_populated_places_simple.dbf
+│   │   ├── ne_110m_populated_places_simple.prj
+│   │   ├── ne_110m_populated_places_simple.README.html
+│   │   ├── ne_110m_populated_places_simple.shp
+│   │   ├── ne_110m_populated_places_simple.shx
+│   │   ├── ne_110m_populated_places_simple.VERSION.txt
+│   │   ├── ne_110m_populated_places.VERSION.txt
+│   │   ├── README.md
+│   │   └── VERSION
+│   ├── marine
+│   │   ├── AnalysisJob.csv
+│   │   ├── marine_taxa.csv
+│   │   ├── OceanDataset.csv
+│   │   └── Sample.csv
+│   ├── metasub
+│   │   ├── After_process_megares_amr_class_rpkmg.csv
+│   │   ├── complete_metadata.csv
+│   │   ├── MetaSUB City Metadata - Sheet1 new.csv
+│   │   ├── metasub_taxa_abundance.csv
+│   │   ├── species_lineages.csv
+│   │   └── tax_metasub_data.csv
+│   └── metasub_global_results.csv
+├── environment.yml
+├── file_struct.txt
+├── lab_notes
+│   ├── daily_notes
+│   │   ├── research_log.aux
+│   │   ├── research_log.fdb_latexmk
+│   │   ├── research_log.fls
+│   │   ├── research_log.log
+│   │   ├── research_log.out
+│   │   ├── research_log.pdf
+│   │   ├── research_log.synctex.gz
+│   │   ├── research_log.tex
+│   │   └── research_log.toc
+│   ├── introduction
+│   │   ├── intro_mgps_notes_01042025.aux
+│   │   └── intro_mgps_notes_01042025.tex
+│   ├── main_mgps_notes_28032025.aux
+│   ├── main_mgps_notes_28032025.fdb_latexmk
+│   ├── main_mgps_notes_28032025.fls
+│   ├── main_mgps_notes_28032025.log
+│   ├── main_mgps_notes_28032025.out
+│   ├── main_mgps_notes_28032025.pdf
+│   ├── main_mgps_notes_28032025.synctex.gz
+│   ├── main_mgps_notes_28032025.tex
+│   ├── methods
+│   │   ├── methods_mgps_notes_01042025.aux
+│   │   └── methods_mgps_notes_01042025.tex
+│   └── results
+│       ├── results_mgps_notes_01042025.aux
+│       └── results_mgps_notes_01042025.tex
+├── notebooks
+│   ├── marine_mgps_processing_04042025.ipynb
+│   └── metasub_mgps_processing_31032025.ipynb
+├── papers
+├── results
+│   ├── marine
+│   │   ├── marine_training_testing_dataset.csv
+│   │   ├── plots
+│   │   │   ├── cofusion_matrix_nn_combined_model_lat_long_marine_model.png
+│   │   │   ├── training_losses_nn_combined_model_lat_long_marine_model.png
+│   │   │   └── world_map_nn_combined_model_lat_long_marine_model.png
+│   │   └── processed_marine.csv
+│   └── metasub
+│       ├── metasub_training_testing_data.csv
+│       ├── plots
+│       │   ├── cofusion_matrix_nn_combined_model_lat_long.png
+│       │   ├── cofusion_matrix_nn_model_combined.png
+│       │   ├── cofusion_matrix_nn_model_lat_long.png
+│       │   ├── cofusion_matrix_nn_model.png
+│       │   ├── final_cofusion_matrix_nn_combined_model_lat_long.png
+│       │   ├── final_confusion_matrix_nn_combined_model_lat_long.png
+│       │   ├── final_training_losses_nn_combined_model_lat_long.png
+│       │   ├── final_world_map_nn_combined_model_lat_long.png
+│       │   ├── hyperparameter_training_losses_nn_combined_model_lat_long.png
+│       │   ├── predictions_vs_adjusted_coastline_correct.png
+│       │   ├── training_losses_nn_combined_model_lat_long.png
+│       │   ├── training_losses_nn_model_combined.png
+│       │   ├── training_losses_nn_model_lat_long.png
+│       │   ├── training_losses_nn_model.png
+│       │   ├── world_map_nn_combined_model_lat_long.png
+│       │   ├── world_map_nn_model_combined.png
+│       │   ├── world_map_nn_model_lat_long.png
+│       │   └── world_map_nn_model.png
+│       ├── processed_metasub.csv
+│       ├── tax_metasub_data.csv
+│       ├── taxonomic_info.csv
+│       └── temp.csv
+└── scripts
+    ├── marine
+    │   ├── check_accuracy_model.py
+    │   ├── nn_combined_lat_long_marine_model.py
+    │   ├── preprocess_marine.py
+    │   ├── process_data_marine.py
+    │   └── __pycache__
+    │       ├── check_accuracy_model.cpython-39.pyc
+    │       └── process_data_marine.cpython-39.pyc
+    ├── metasub
+    │   ├── accuracy_metrics
+    │   │   ├── calculate_model_accuracy.py
+    │   │   └── __pycache__
+    │   │       └── calculate_model_accuracy.cpython-39.pyc
+    │   ├── cross_validation
+    │   │   └── make_cross_validation.py
+    │   ├── data_preprocess
+    │   │   ├── get_taxonomic_info.py
+    │   │   └── preprocess_metasub.py
+    │   ├── helper_plots
+    │   │   ├── plotting.py
+    │   │   └── __pycache__
+    │   │       └── plotting.cpython-39.pyc
+    │   ├── main.py
+    │   ├── nn_architecture
+    │   │   ├── nn_allmodels
+    │   │   │   ├── check_accuracy_model.py
+    │   │   │   ├── nn_combined_model_lat_long_hyperparameter.py
+    │   │   │   ├── nn_combined_model_lat_long.py
+    │   │   │   ├── nn_continent_model.py
+    │   │   │   ├── nn_latlong_model.py
+    │   │   │   ├── nn_model_combined.py
+    │   │   │   ├── nn_model_lat_long.py
+    │   │   │   ├── nn_model.py
+    │   │   │   └── process_data.py
+    │   │   ├── nn_city
+    │   │   ├── nn_continent
+    │   │   │   ├── hexagon_model_losses.png
+    │   │   │   ├── hexagon_predictions_map.html
+    │   │   │   ├── hex_predictions_map.html
+    │   │   │   ├── nn_continent_model.py
+    │   │   │   ├── nn_hexagon_model_new.py
+    │   │   │   ├── nn_hexagon_model.py
+    │   │   │   ├── nn_hexagon_model_world.py
+    │   │   │   ├── prediction_results.csv
+    │   │   │   ├── __pycache__
+    │   │   │   │   └── nn_continent_model.cpython-39.pyc
+    │   │   │   └── training_curves.png
+    │   │   └── nn_latlong
+    │   │       ├── nn_latlong_model.py
+    │   │       └── __pycache__
+    │   │           └── nn_latlong_model.cpython-39.pyc
+    │   ├── process_transfrom_data
+    │   │   ├── process_transform_data.py
+    │   │   └── __pycache__
+    │   │       └── process_transform_data.cpython-39.pyc
+    │   ├── __pycache__
+    │   │   ├── check_accuracy_model.cpython-39.pyc
+    │   │   └── process_data.cpython-39.pyc
+    │   └── ray_main.py
+    ├── __pycache__
+    │   ├── check_accuracy_model.cpython-39.pyc
+    │   └── process_data.cpython-39.pyc
+    ├── rfe_feature_selection.py
+    ├── slurm
+    │   ├── rfe_batch.sh
+    │   ├── taxonomic_batch.sh
+    │   ├── taxonomic_information_1399513.error
+    │   └── taxonomic_information_1399513.output
+    └── soil
+
+40 directories, 225 files

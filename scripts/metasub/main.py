@@ -242,8 +242,7 @@ if __name__ == "__main__":
         has_city=args.city,
         has_xyz=args.xyz)
     
-    # Plot losses
-    PredictionMetrics.plot_losses(train_losses=train_loss,val_losses=val_loss,filename='main_losses.png')
+    
 
     # Run testing loop
     test_results = check_combined_accuracy(
@@ -263,7 +262,7 @@ if __name__ == "__main__":
     record = {**hyperparams, **filtered_results}
 
     # Save hyperparameters and stats to CSV
-    def save_params_to_csv(record, csv_file="model_run_log.csv"):
+    def save_params_to_csv(record, csv_file="continent_model_log.csv"):
         file_exists = os.path.isfile(csv_file)
 
         with open(csv_file, mode='a', newline='') as f:
@@ -275,7 +274,9 @@ if __name__ == "__main__":
             writer.writerow(record)
         print(f"Model config written to {csv_file}")
 
-    save_params_to_csv(record=record)
+    #save_params_to_csv(record=record)
+    # Plot losses
+    #PredictionMetrics.plot_losses(train_losses=train_loss,val_losses=val_loss,filename='main_losses.png')
 
 # python main.py --continent -d ../../results/metasub_training_testing_data.csv -b 32 -lr 0.001 -n 1 -e 200 -c True 
 
