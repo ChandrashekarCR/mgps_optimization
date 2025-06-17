@@ -1,0 +1,34 @@
+no change     /sw/easybuild_milan/software/Anaconda3/2024.06-1/condabin/conda
+no change     /sw/easybuild_milan/software/Anaconda3/2024.06-1/bin/conda
+no change     /sw/easybuild_milan/software/Anaconda3/2024.06-1/bin/conda-env
+no change     /sw/easybuild_milan/software/Anaconda3/2024.06-1/bin/activate
+no change     /sw/easybuild_milan/software/Anaconda3/2024.06-1/bin/deactivate
+no change     /sw/easybuild_milan/software/Anaconda3/2024.06-1/etc/profile.d/conda.sh
+no change     /sw/easybuild_milan/software/Anaconda3/2024.06-1/etc/fish/conf.d/conda.fish
+no change     /sw/easybuild_milan/software/Anaconda3/2024.06-1/shell/condabin/Conda.psm1
+no change     /sw/easybuild_milan/software/Anaconda3/2024.06-1/shell/condabin/conda-hook.ps1
+no change     /sw/easybuild_milan/software/Anaconda3/2024.06-1/lib/python3.12/site-packages/xontrib/conda.xsh
+no change     /sw/easybuild_milan/software/Anaconda3/2024.06-1/etc/profile.d/conda.csh
+no change     /home/chandru/.bashrc
+No action taken.
+Running on GPU node: cg14
+Starting job 1405263
+Task settings — Continent: True, City: False, XYZ: False
+Using device: cuda
+Epoch 10/200 | continent train 0.7436 val 0.8200 | dropout 0.225 | time 0.6s
+Epoch 20/200 | continent train 0.5204 val 0.6590 | dropout 0.250 | time 0.6s
+Epoch 30/200 | continent train 0.4640 val 0.6302 | dropout 0.275 | time 0.8s
+Epoch 40/200 | continent train 0.4534 val 0.6101 | dropout 0.300 | time 0.9s
+Epoch 50/200 | continent train 0.4375 val 0.6420 | dropout 0.325 | time 0.8s
+Epoch 60/200 | continent train 0.4383 val 0.6773 | dropout 0.350 | time 0.9s
+Epoch 70/200 | continent train 0.4380 val 0.6556 | dropout 0.375 | time 0.7s
+Epoch 80/200 | continent train 0.4072 val 0.5593 | dropout 0.400 | time 0.9s
+Epoch 90/200 | continent train 0.4447 val 0.5804 | dropout 0.425 | time 0.7s
+Epoch 100/200 | continent train 0.5021 val 0.5522 | dropout 0.450 | time 0.6s
+Epoch 110/200 | continent train 0.4970 val 0.6158 | dropout 0.475 | time 0.8s
+Early stopping @ epoch 113
+Restored best model (val loss 0.5156)
+Continent Accuracy: 79.98%
+Continent Precision: 0.8343
+Continent Recall: 0.7998
+Continent F1-Score: 0.8111
