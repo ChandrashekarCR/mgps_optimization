@@ -66,8 +66,6 @@ def process_data(data_path):
     y_columns = ['continent_encoding', 'city_encoding', 'scaled_x','scaled_y','scaled_z']
     y = in_data[y_columns].values.astype(np.float32)
 
-    # --- Changes end here ---
-
     return in_data, X, y, le_continent, le_city, coordinate_scaler, continent_encoding_map, city_encoding_map
 
 

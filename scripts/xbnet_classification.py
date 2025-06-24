@@ -13,7 +13,7 @@ import torch.nn.functional as F
 import torch.optim as optim
 from torch.utils.data import DataLoader, TensorDataset, ConcatDataset
 from tqdm import tqdm
-
+from sklearn.utils.class_weight import compute_sample_weight
 
 
 class XBNet(nn.Module):
@@ -24,7 +24,7 @@ class XBNet(nn.Module):
 
     """
 
-    def __init__(self,input_size, hidden_layers=[400,200],num_classes=7, n_estimators=100, max_depth=3, dropout_rate=0.2, random_state=42):
+    def __init__(self,input_size, hidden_layers=[400,200],num_classes=7, n_estimators=100, max_depth=3, dropout_rate=0.2, sample_weight=None , use_batch_norm = True, random_state=42):
         super(XBNet,self).__init__()
         """
         Initialize XBNet architecture using Pytorch modules.
@@ -47,6 +47,8 @@ class XBNet(nn.Module):
         self.max_depth = max_depth
         self.dropout_rate = dropout_rate
         self.random_state = random_state
+        self.use_batch_norm = use_batch_norm
+        self.sample_weight = sample_weight
         
         # Set random seeds
         torch.manual_seed(random_state)
@@ -55,12 +57,20 @@ class XBNet(nn.Module):
         # Build the neural network
         self.layers = nn.ModuleList()
         self.dropouts = nn.ModuleList()
+        self.batch_norms = nn.ModuleList()
 
         # Create layer architecture
         layer_sizes = [input_size] + hidden_layers + [num_classes]
 
         for i in range(len(layer_sizes)-1):
+            # Add liner layers
             self.layers.append(nn.Linear(layer_sizes[i], layer_sizes[i+1]))
+
+            # Add batch normalization for hidden layers only and not the output layer
+            if i < len(layer_sizes)-2 and self.use_batch_norm:
+                self.batch_norms.append(nn.BatchNorm1d(layer_sizes[i+1]))
+            
+            # Add dropout for hidden layers only and not th output layer
             if i < len(layer_sizes)-2: # Don't add dropout to ouput layer
                 self.dropouts.append(nn.Dropout(dropout_rate))
 
@@ -78,15 +88,24 @@ class XBNet(nn.Module):
         self._initialize_weights()
 
         # Debug: Print the architecture
-        self._print_architechture()
+        self._print_architecture()
 
-    def _print_architechture(self):
+    def _print_architecture(self):
         """Print the network architecture for debugging"""
         print("\nXBNet Architecture:")
-        print(f"\nInput size: {self.input_size}")
+        print(f"Input size: {self.input_size}")
+        print(f"Batch Normalization: {'Enabled' if self.use_batch_norm else 'Disabled'}")
+        
         for i, layer in enumerate(self.layers):
             layer_type = "Hidden" if i < len(self.layers) - 1 else "Output"
             print(f"Layer {i} ({layer_type}): {layer.in_features} -> {layer.out_features}")
+            
+            if i < len(self.layers) - 1:  # Hidden layers
+                if self.use_batch_norm:
+                    print(f"  + BatchNorm1d({layer.out_features})")
+                print(f"  + ReLU")
+                print(f"  + Dropout({self.dropout_rate})")
+        
         print(f"Total parameters: {sum(p.numel() for p in self.parameters())}")
         print("-"*50)
 
@@ -99,6 +118,12 @@ class XBNet(nn.Module):
         # Ouput layer
         nn.init.xavier_uniform_(self.layers[-1].weight)
         nn.init.zeros_(self.layers[-1].bias)
+
+        # Initialiaze the batch normalization parameters
+        if self.use_batch_norm:
+            for bn in self.batch_norms:
+                nn.init.ones_(bn.weight)
+                nn.init.zeros_(bn.bias)
 
     def initialize_first_layer_with_feature_importance(self,X,y):
         """
@@ -127,7 +152,7 @@ class XBNet(nn.Module):
                                              use_label_encoder=False, eval_metric='mlogloss')
 
         # Train it on the entire dataset
-        self.gb_tree_initial.fit(X_np,y_np)
+        self.gb_tree_initial.fit(X_np,y_np,sample_weight=self.sample_weight)
         feature_importance = self.gb_tree_initial.feature_importances_
 
         # Initialize the first layer weights with feature importance
@@ -163,7 +188,14 @@ class XBNet(nn.Module):
         # Forward pass through the hidden layers
         for i, (layer, dropout) in enumerate(zip(self.layers[:-1],self.dropouts)):
             
+            # Linear transformations
             z = layer(current_input)
+            
+            # Batch normalization if it is set to True
+            if self.use_batch_norm:
+                z = self.batch_norms[i](z)
+
+            # Activation function
             a = F.relu(z) # RelU activation for hidden layers
 
             if store_activations:
@@ -212,7 +244,7 @@ class XBNet(nn.Module):
                     eval_metric = 'mlogloss',verbosity = 0
                 )
 
-                gb_tree_layer.fit(layer_output,y_np)
+                gb_tree_layer.fit(layer_output,y_np,sample_weight=self.sample_weight)
                 self.feature_importances[layer_idx] = gb_tree_layer.feature_importances_
 
             except Exception as e:
@@ -535,25 +567,27 @@ def implement_xbnet_pytorch():
     print("\nTesting\n")
     print(X_test.shape, y_test.shape)
 
+    sample_weights = compute_sample_weight(class_weight='balanced',y=y_train)
+
     # Create dataloader
     train_loader, val_loader, test_loader = create_dataloaders(X_train,y_train, X_val, y_val, X_test, y_test, batch_size=256)
 
     # Initialiaze XBNet model
     model = XBNet(
         input_size=200,
-        hidden_layers=[400,400,200],
+        hidden_layers=[512,256,256,128],
         num_classes=7,
-        n_estimators=50,
-        max_depth=3,
-        dropout_rate=0.2,
-        random_state=42
+        n_estimators=100,
+        max_depth=5,
+        dropout_rate=0.4,
+        random_state=42,sample_weight=sample_weights
     )
 
     # Initialiaze first layer with feature importance
     model.initialize_first_layer_with_feature_importance(X_train,y_train)
 
 
-    # Initialiaze traineer
+    # Initialiaze trainer
     trainer = XBNetTrainer(model,learning_rate=0.001,weight_deacay=1e-5)
 
     # Train the model
