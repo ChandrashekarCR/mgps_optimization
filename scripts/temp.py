@@ -11,6 +11,7 @@ from sklearn.multioutput import MultiOutputRegressor
 from sklearn.metrics import mean_squared_error, r2_score
 from geopy.distance import geodesic 
 
+
 def calculate_mae_km(df, predicted_lat_col, predicted_lon_col, true_lat_col, true_lon_col):
     """
     Calculates the Mean Absolute Error (MAE) in kilometers for predicted
@@ -217,7 +218,7 @@ print(f"Longitude MAE: {mae_long_km:.2f} km")
 
 # Read the data 
 df = pd.read_csv("/home/chandru/binp37/results/metasub/metasub_training_testing_data.csv")
-df = pd.concat([df.iloc[:,:-4],df['city']],axis=1)
+df = pd.concat([df.iloc[:,:-4],df['continent']],axis=1)
 x_data = df[df.columns[:-1]][:]
 print(x_data.shape)
 y_data = df[df.columns[-1]][:]
@@ -263,6 +264,4 @@ print("\nClassfication Report:\n",classification_report(y_test,y_pred))
 
 # Print Confusion Matrix
 print("\nConfusion Matrix\n", confusion_matrix(y_test,y_pred))
-
-
 
