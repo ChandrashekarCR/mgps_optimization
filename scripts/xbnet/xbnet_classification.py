@@ -547,9 +547,9 @@ def implement_xbnet_pytorch():
     # Read the data 
     df = pd.read_csv("/home/chandru/binp37/results/metasub/metasub_training_testing_data.csv")
     df = pd.concat([df.iloc[:,:-4],df['continent']],axis=1)
-    x_data = df[df.columns[:-1]][:2000].to_numpy()
+    x_data = df[df.columns[:-1]][:].to_numpy()
     print(x_data.shape)
-    y_data = df[df.columns[-1]][:2000].to_numpy()
+    y_data = df[df.columns[-1]][:].to_numpy()
     le = LabelEncoder()
     y_data = le.fit_transform(y_data)
     print(le.classes_)

@@ -109,7 +109,7 @@ def parallel_rfe_feature_selection(X: pd.DataFrame, y: pd.Series, n_jobs: int = 
                     max_depth=10
                 ), 
                 n_features_to_select=n_features, 
-                step=max(1, min(10, X_remote.shape[1] // 100))  # Adaptive step size
+                step=1    #max(1, min(10, X_remote.shape[1] // 100))  # Adaptive step size
             )
             pipe = make_pipeline(rfe)
 

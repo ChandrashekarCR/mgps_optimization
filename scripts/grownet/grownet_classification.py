@@ -109,26 +109,7 @@ class GrowNetTrainer:
         self.model = model
         self.device = device
         self.criterion = nn.CrossEntropyLoss().to(device)
-
-
-    def compute_residuals(self, y_true, y_pred):
-        """
-        
-        Compute residuals for classificaiton using cross entorpy gradient
-        
-        """
-
-        # Convert to probabilities
-        y_pred_prob = F.softmax(y_pred,dim=1)
-
-        # Create one-hot encoding
-        y_true_onehot = F.one_hot(y_true,num_classes=self.model.num_classes).float()
-
-        # Compute the residulas
-        residuals = y_true_onehot - y_pred_prob
-
-        return residuals
-        
+      
 
     def train_stage(self,train_loader, stage, epochs=50,lr=0.001):
         """
@@ -328,8 +309,8 @@ class GrowNetTrainer:
                 all_targets.extend(batch_y.cpu().numpy())
 
         accuracy = accuracy_score(all_targets, all_predictions)
-        classfication_metrics = classification_report(all_targets,all_predictions)
-        confusion_matrix_metrics = confusion_matrix(all_targets,all_predictions)
+        classfication_metrics = classification_report(all_targets,all_predictions,target_names=continent_encoding_map.values())
+        confusion_matrix_metrics = confusion_matrix(all_targets,all_predictions,labels=continent_encoding_map.values())
         
         return accuracy, classfication_metrics, confusion_matrix_metrics  
     
@@ -342,9 +323,9 @@ def create_grownet_model(input_dim=200, num_classes=7):
     model = GrowNet(
         input_size=input_dim,
         num_class=num_classes,
-        num_weak_learners=25,  # Increased for better ensemble effect
-        hidden_size=128,       # Larger hidden dimension for complex patterns
-        boost_rate=0.08,      # Slightly lower boost rate for stability
+        num_weak_learners=35,  # Increased for better ensemble effect
+        hidden_size=1024,       # Larger hidden dimension for complex patterns
+        boost_rate=0.3,      # Slightly lower boost rate for stability
         dropout=0.4      # Higher dropout for regularization
     )
     return model
@@ -361,10 +342,6 @@ def prepare_data(X, y, batch_size=64, test_size=0.2, random_state=42):
         X, y, test_size=test_size, random_state=random_state, stratify=y
     )
     
-    # Standardize features
-    scaler = StandardScaler()
-    X_train = scaler.fit_transform(X_train)
-    X_test = scaler.transform(X_test)
     
     # Convert to tensors
     X_train_tensor = torch.FloatTensor(X_train)
@@ -379,26 +356,29 @@ def prepare_data(X, y, batch_size=64, test_size=0.2, random_state=42):
     train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
     test_loader = DataLoader(test_dataset, batch_size=batch_size, shuffle=False)
     
-    return train_loader, test_loader, scaler
+    return train_loader, test_loader
 
 
 # Example training script
 # Read the data 
 df = pd.read_csv("/home/chandru/binp37/results/metasub/metasub_training_testing_data.csv")
 df = pd.concat([df.iloc[:,:-4],df['continent']],axis=1)
-x_data = df[df.columns[:-1]][:]
+x_data = df[df.columns[:-1]][:].to_numpy()
 print(x_data.shape)
-y_data = df[df.columns[-1]][:]
+y_data = df[df.columns[-1]][:].to_numpy()
 le = LabelEncoder()
 y_data = le.fit_transform(y_data)
 print(le.classes_)
 
+continent_encoding_map = dict(zip(le.transform(le.classes_), le.classes_))
+print(continent_encoding_map)
+
 
 # Prepare data
-train_loader, val_loader, scaler = prepare_data(x_data, y_data, batch_size=64)
+train_loader, val_loader = prepare_data(x_data, y_data, batch_size=64)
 
 # Create model
-model = create_grownet_model(input_dim=200, num_classes=7)
+model = create_grownet_model(input_dim=200, num_classes=len(np.unique(y_data)))
 
 # Create trainer
 trainer = GrowNetTrainer(model)
@@ -407,8 +387,8 @@ trainer = GrowNetTrainer(model)
 trainer.fit(
     train_loader=train_loader,
     val_loader=val_loader,
-    stage_epochs=120,      # More epochs per stage
-    corrective_epochs=60  # More corrective epochs
+    stage_epochs=240,      
+    corrective_epochs=120  
 )
 
 
@@ -417,5 +397,7 @@ test_accuracy, test_classification_metrics, test_confusion_metrics = trainer.pre
 print(f"Final Test Accuracy: {test_accuracy:.4f}")
 print(f"\nTest Classification Report: \n{test_classification_metrics}")
 print(f"\nTest Confusion Metrics: \n{test_confusion_metrics}")
+
+
 
 

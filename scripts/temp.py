@@ -184,7 +184,7 @@ y_test_pred = model.predict(X_test)
 def evaluate_regression(true, pred, dataset_name=""):
     print(f"\nPerformance on {dataset_name} set:")
     print("RMSE:", np.sqrt(mean_squared_error(true, pred)))
-    print("R² Score:", r2_score(true, pred))
+    print("R2 Score:", r2_score(true, pred))
 
 evaluate_regression(y_val, y_val_pred, "Validation")
 evaluate_regression(y_test, y_test_pred, "Test")
