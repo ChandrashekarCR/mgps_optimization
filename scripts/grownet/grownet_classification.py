@@ -310,7 +310,7 @@ class GrowNetTrainer:
 
         accuracy = accuracy_score(all_targets, all_predictions)
         classfication_metrics = classification_report(all_targets,all_predictions,target_names=continent_encoding_map.values())
-        confusion_matrix_metrics = confusion_matrix(all_targets,all_predictions,labels=continent_encoding_map.values())
+        confusion_matrix_metrics = confusion_matrix(all_targets,all_predictions)
         
         return accuracy, classfication_metrics, confusion_matrix_metrics  
     
