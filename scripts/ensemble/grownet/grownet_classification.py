@@ -91,39 +91,11 @@ class GrowNetTuner:
         return self.best_params, self.best_score
 
 
-def run_grownet(X_train,y_train,X_test,y_test,params=None,tune_hyperparams = False, n_trials=20,timeout=1200,device="cuda"):
-    # Use deafult if params not given
-    if params is None:
-        params = default_params()
-    else:
-        default = default_params()
-        default.update(params)
-        params = default
-
-    # Split validation set from training data
-    X_train_split, X_val, y_train_split, y_val = train_test_split(X_train,y_train,test_size=0.2,random_state=42, stratify=y_train)
-    
-    if tune_hyperparams:
-        tuner = GrowNetTuner(X_train_split,y_train_split,X_val,y_val,params,device=device,n_trials=n_trials,timeout=timeout)
-        best_params, best_score = tuner.tune()
-        params.update(best_params)
-        print("Using best params:", params)
-    
-    # Train final model on full training data
-    model = GrowNetClassifier(params,device=device)
-    model.fit(X_train,y_train)
-    
-    results = model.evaluate(X_test,y_test)
-    print("\nClassification Report:")
-    print(classification_report(results['targets'], results['predictions']))
-    print("\nAccuracy:", results['class_accuracy'])
-    return model, results
-
 device = "cuda" if torch.cuda.is_available() else "cpu"
 print(f"Using device: {device}")
 
 # Dataset class for continent classification
-class TrainDataset:
+class TrainDataset(Dataset):
     def __init__(self, features, n_targets):
         self.features = features
         self.n_targets = n_targets
@@ -443,5 +415,34 @@ class GrowNetClassifier:
                 all_preds_prob.extend(probs)
         return {
             'predictions': np.array(all_preds),
-            'predictions_probabilities': np.array(all_preds_prob)        
+            'probabilities': np.array(all_preds_prob)        
         }
+    
+def run_grownet(X_train,y_train,X_test,y_test,params=None,
+                tune_hyperparams = False, n_trials=20,timeout=1200,device="cuda"):
+    # Use deafult if params not given
+    if params is None:
+        params = default_params()
+    else:
+        default = default_params()
+        default.update(params)
+        params = default
+    
+    if tune_hyperparams:
+        # Split validation set from training data
+        X_train_split, X_val, y_train_split, y_val = train_test_split(X_train,y_train,test_size=0.2,random_state=42, stratify=y_train)
+
+        tuner = GrowNetTuner(X_train_split,y_train_split,X_val,y_val,params,device=device,n_trials=n_trials,timeout=timeout)
+        best_params, best_score = tuner.tune()
+        params.update(best_params)
+        print("Using best params:", params)
+    
+    # Train final model on full training data
+    model = GrowNetClassifier(params,device=device)
+    model.fit(X_train,y_train)
+    
+    results = model.evaluate(X_test,y_test)
+    print("\nClassification Report:")
+    print(classification_report(results['targets'], results['predictions']))
+    print("\nAccuracy:", results['class_accuracy'])
+    return model
