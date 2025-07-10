@@ -18,6 +18,7 @@ from xgboost_ensemble.xgboost_classification import XGBoostTuner
 from random_forest.randomforest_classification import RandomForestTuner
 from tab_pfn.tab_pfn_classificaiton import TabPFNModel
 from grownet.grownet_classification import GrowNetClassifier, GrowNetTuner, run_grownet
+from simple_nn.nn_classification import NNTuner, NNClassifier
 
 
 
@@ -130,9 +131,9 @@ X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_
 
 
 # Grownet model
-model, grownet_results = run_grownet(X_train,y_train, X_test, y_test, tune_hyperparams=True,timeout=500)
+#model, grownet_results = run_grownet(X_train,y_train, X_test, y_test, tune_hyperparams=True,timeout=500)
 
-print(grownet_results)
+#print(grownet_results)
 
 #grownet = GrowNetClassifier(device='cuda')
 #grownet.fit(X_train, y_train, X_val=None, y_val=None)  # Will split val internally if not provided
@@ -144,3 +145,10 @@ print(grownet_results)
 
 #print("\nClassification Report")
 #print(classification_report(metrics['targets'], metrics['predictions']))
+
+# Neural Network
+model = NNClassifier(device="cuda")
+model.fit(X_train,y_train)
+
+results = model.evaluate(X_test,y_test)
+print(classification_report(results['targets'], results['predictions']))
