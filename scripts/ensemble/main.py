@@ -8,18 +8,19 @@ import numpy as np
 from sklearn.preprocessing import LabelEncoder, StandardScaler
 from sklearn.model_selection import train_test_split
 from sklearn.metrics import classification_report, confusion_matrix
+from sklearn.linear_model import LogisticRegression
 
 
 import matplotlib.pyplot as plt
 import seaborn as sns
 
 # Import other models
-from xgboost_ensemble.xgboost_classification import XGBoostTuner
+from xgboost_ensemble.xgboost_classification import XGBoostTuner, run_xgboost_classifier
 from random_forest.randomforest_classification import RandomForestTuner
-from tab_pfn.tab_pfn_classificaiton import TabPFNModel
+from tab_pfn.tab_pfn_classificaiton import TabPFNModel, run_tabpfn_classifier
 from grownet.grownet_classification import GrowNetClassifier, GrowNetTuner, run_grownet
-from simple_nn.nn_classification import NNTuner, NNClassifier
-
+from simple_nn.nn_classification import run_nn_classifier
+from ft_transformer.ft_transformer_classification import run_ft_transformer_classifier
 
 
 
@@ -91,64 +92,64 @@ y = processed_data['y_continent']
 # Split
 X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42, stratify=y)
 
-## Initialize XGBoost tuner
-#xgb_tuner = XGBoostTuner(
-#        X=X, y=y,
-#        X_train=X_train, y_train=y_train,
-#        X_test=X_test, y_test=y_test,
-#        random_state=42,
-#        n_trial=20,  # Increase for better results
-#        timeout=1200  # 30 minutes timeout
-#    )
-#    
-## Run complete pipeline
-#xgb_results = xgb_tuner.run_complete_pipeline()
-#
-#
-## Initialize Random Forest tuner
-#rf_tuner = RandomForestTuner(
-#        X=X, y=y,
-#        X_train=X_train, y_train=y_train,
-#        X_test=X_test, y_test=y_test,
-#        random_state=42,
-#        n_trial=30,
-#        timeout=1000
-#    )
-#    
-### Run complete pipeline
-#rf_results = rf_tuner.run_complete_pipeline()
-#
-#print(xgb_results['accuracy'])
-#print(rf_results['accuracy'])
+# XGBoost Model
+xgboost_tuned = run_xgboost_classifier(X_train, y_train, X_test, y_test, tune_hyperparams=True, n_trials=50, timeout=1800)
+xgboost_model = xgboost_tuned['model']
 
+# Run prediciton on the training dataset to get probabilities
+prob_xgb = xgboost_model.predict_proba(X_train)
 
-# Run TabPFN pipeline
-#tab_model = TabPFNModel(X_train, y_train, X_test, y_test, device='cuda')
-#tab_results = tab_model.run_complete_pipeline()
-#
-#print(tab_results)
+# TabPFN model
+tabpfn_tuned = run_tabpfn_classifier(X_train,y_train,X_test,
+                                     y_test,tune_hyperparams=True,
+                                     device='cuda',
+                                     custom_params={'max_time':500})
+tabpfn_model = tabpfn_tuned['model']
 
-
+# Run prediction on the training dataset to get the prbabilities
+prob_tabpfn = tabpfn_model.predict_proba(X_train)
 
 # Grownet model
-#model, grownet_results = run_grownet(X_train,y_train, X_test, y_test, tune_hyperparams=True,timeout=500)
-
-#print(grownet_results)
-
-#grownet = GrowNetClassifier(device='cuda')
-#grownet.fit(X_train, y_train, X_val=None, y_val=None)  # Will split val internally if not provided
-#
-## Predict and evaluate
-#y_pred = grownet.predict(X_test)
-#
-#print(y_pred)
-
-#print("\nClassification Report")
-#print(classification_report(metrics['targets'], metrics['predictions']))
+grownet_model = run_grownet(X_train,y_train, X_test, y_test, tune_hyperparams=True,timeout=1200)
+prob_grownet = grownet_model.predict(X_train)['probabilities']
 
 # Neural Network
-model = NNClassifier(device="cuda")
-model.fit(X_train,y_train)
+nn_model = run_nn_classifier(
+    X_train=X_train,
+    y_train=y_train,
+    X_test=X_test,
+    y_test=y_test,
+    tune_hyperparams=True,n_trials=20,timeout=1000)
 
-results = model.evaluate(X_test,y_test)
-print(classification_report(results['targets'], results['predictions']))
+prob_nn = nn_model.predict(X_train)['probabilities']
+
+## FT-Transformer
+#ft_model = run_ft_transformer_classifier(
+#    X_train=X_train,
+#    y_train = y_train,
+#    X_test=X_test,
+#    y_test=y_test,
+#    tune_hyperparams=False
+#)
+#
+#print(ft_model.predict(X_train)['probabilities'])
+
+train_meta_features = np.hstack([prob_xgb, prob_tabpfn, prob_grownet, prob_nn])
+
+# Repeat for test set
+proba_xgb_test = xgboost_model.predict_proba(X_test)
+proba_tabpfn_test = tabpfn_model.predict_proba(X_test)
+proba_grownet_test =  grownet_model.predict(X_test)['probabilities']
+proba_nn_test = nn_model.predict(X_test)['probabilities']
+
+test_meta_features = np.hstack([proba_xgb_test, proba_tabpfn_test, proba_grownet_test, proba_nn_test])
+
+
+meta_model = LogisticRegression(max_iter=1000)
+meta_model.fit(train_meta_features, y_train)
+
+meta_preds_test = meta_model.predict(test_meta_features)
+meta_preds_train = meta_model.predict(train_meta_features)
+
+print(classification_report(y_test, meta_preds_test, target_names=processed_data['continents']))
+print(classification_report(y_train,meta_preds_train, target_names=processed_data['continents']))

@@ -1,4 +1,4 @@
-# This model is used for classification tasks with Autoencoder and Attention
+# This model is used for classification tasks with a simple neural network
 
 # Import libraries
 import numpy as np
@@ -31,13 +31,11 @@ warnings.filterwarnings('ignore')
 def default_params():
     return {
         "input_dim": 200,
-        "latent_dim": 32,
-        "hidden_dim": [32, 16],
+        "hidden_dim": [128, 64],
         "output_dim": 7,
         "use_batch_norm": True,
         "initial_dropout": 0.3,
         "final_dropout": 0.8,
-        "reconstruction_weight": 0.0001,
         "lr": 1e-3,
         "weight_decay": 1e-5,
         "batch_size": 128,
@@ -51,7 +49,7 @@ def default_params():
 
 
 class NNTuner:
-    def __init__(self, X_train, y_train, X_val, y_val, params, device="cpu", n_trials=20, timeout=1200):
+    def __init__(self, X_train, y_train, X_val=None, y_val=None, params=None, device="cpu", n_trials=20, timeout=1200):
         self.X_train = X_train
         self.y_train = y_train
         self.X_val = X_val
@@ -64,14 +62,21 @@ class NNTuner:
         self.best_score = None
 
     def objective(self, trial):
-        # Suggest hyperparameters
         params = self.params.copy()
         params.update({
-            "latent_dim": trial.suggest_categorical("latent_dim", [32, 64, 128]),
-            "hidden_dim": trial.suggest_categorical("hidden_dim", [64, 128, 256]),
+            "hidden_dim": trial.suggest_categorical(
+                "hidden_dim",
+                [
+                    [64],
+                    [128],
+                    [128, 64],
+                    [256, 128, 64],
+                    [256, 128],
+                    [512, 256, 128, 64]
+                ]
+            ),
             "initial_dropout": trial.suggest_float("initial_dropout", 0.1, 0.3),
             "final_dropout": trial.suggest_float("final_dropout", 0.5, 0.8),
-            "reconstruction_weight": trial.suggest_float("reconstruction_weight", 0.01, 0.5),
             "lr": trial.suggest_loguniform("lr", 1e-4, 1e-2),
             "batch_size": trial.suggest_categorical("batch_size", [64, 128, 256]),
             "weight_decay": trial.suggest_loguniform("weight_decay", 1e-6, 1e-3),
@@ -97,47 +102,12 @@ class NNTuner:
         
         return self.best_params, self.best_score
 
-    def run_nn_classifier(self,device="cuda",tune_hyperparams=False,params=None):
-        # Use default if params not given
-        if params is None:
-            params = default_params()
-        else:
-            default = default_params()
-            default.update(params)
-            params = default
-
-        # Update input dimension based on actual data
-        params['input_dim'] = self.X_train.shape[1]
-        params['output_dim'] = len(np.unique(self.y_train))
-
-        # Split validation set from training data
-        X_train_split, X_val, y_train_split, y_val = train_test_split(
-            self.X_train, self.y_train, test_size=0.2, random_state=42, stratify=self.y_train
-        )
-
-        if tune_hyperparams:
-            tuner = NNTuner(X_train_split, y_train_split, X_val, y_val, 
-                                   params, device=device, n_trials=self.n_trials, timeout=self.timeout)
-            best_params, best_score = tuner.tune()
-            params.update(best_params)
-            print("Using best params:", params)
-
-        # Train final model on full training data
-        model = NNClassifier(params, device=device)
-        model.fit(self.X_train, self.y_train)
-
-        results = model.evaluate(self.X_test, self.y_test)
-        print("\nClassification Report:")
-        print(classification_report(results['targets'], results['predictions']))
-        print("\nAccuracy:", results['class_accuracy'])
-        return model, results
-
 
 device = "cuda" if torch.cuda.is_available() else "cpu"
 print(f"Using device: {device}")
 
-# Dataset class for continent classification
-class TrainDataset:
+# Dataset class for classification
+class TrainDataset(Dataset):
     def __init__(self, features, n_targets):
         self.features = features
         self.n_targets = n_targets
@@ -150,46 +120,11 @@ class TrainDataset:
             'x': torch.tensor(self.features[idx], dtype=torch.float),
             'n_classes': torch.tensor(self.n_targets[idx], dtype=torch.long)
         }
+   
 
-
-# Autoencoder
-class Autoencoder(nn.Module):
-    def __init__(self, input_dim:int, latent_dim:64):
-        super(Autoencoder,self).__init__()
-        self.encoder = nn.Sequential(
-            nn.Linear(input_dim,128),
-            nn.ReLU(),
-            nn.Linear(128,latent_dim)
-        )
-        self.decoder = nn.Sequential(
-            nn.Linear(latent_dim,128),
-            nn.ReLU(),
-            nn.Linear(128,input_dim)
-        )
-    def forward(self,x):
-        latent = self.encoder(x)
-        recon = self.decoder(latent)
-        return latent, recon
-    
-# Feature Attention
-class FeatureAttention(nn.Module):
-    def __init__(self, input_dim):
-        super(FeatureAttention,self).__init__()
-        self.attn = nn.Sequential(
-            nn.Linear(input_dim,128),
-            nn.Tanh(),
-            nn.Linear(128,input_dim)
-        )
-
-    def forward(self,x):
-        scores = self.attn(x)
-        weights = F.softmax(scores,dim=1)
-        return x * weights
-    
-
-# Continent Neural Network
+# Neural Network
 class ClassificationNeuralNetwork(nn.Module):
-    def __init__(self, input_dim, latent_dim, output_dim, hidden_dim = [128,64], use_batch_norm=True,
+    def __init__(self, input_dim, output_dim, hidden_dim = [128,64], use_batch_norm=True,
                   initial_dropout:float = 0.2, final_dropout:float =0.7, random_state=42):
         super(ClassificationNeuralNetwork,self).__init__()
 
@@ -205,7 +140,6 @@ class ClassificationNeuralNetwork(nn.Module):
         
         """
         self.input_size = input_dim
-        self.latent_dim = latent_dim
         self.hidden_dim = hidden_dim
         self.output_size = output_dim
         self.dropout_initial = initial_dropout
@@ -215,11 +149,7 @@ class ClassificationNeuralNetwork(nn.Module):
         # Set random seeds
         torch.manual_seed(random_state)
         np.random.seed(random_state)
-
-        # Autoencoder and attention on latent space
-        self.autoencoder = Autoencoder(input_dim,latent_dim)
-        self.attention = FeatureAttention(latent_dim) # attention on the latent dim
-        
+       
 
         # Build the neural network
         self.layers = nn.ModuleList()
@@ -230,7 +160,7 @@ class ClassificationNeuralNetwork(nn.Module):
         dropout_rates = np.linspace(initial_dropout,final_dropout, len(hidden_dim))
 
         # Create the layer architecture
-        layer_sizes = [latent_dim] + hidden_dim + [output_dim]
+        layer_sizes = [input_dim] + hidden_dim + [output_dim]
 
         for i in range(len(layer_sizes)-1):
             # Add the linear layers first
@@ -252,11 +182,8 @@ class ClassificationNeuralNetwork(nn.Module):
         - x: Input tensor        
         """
 
-        # Get latent representation and reconstruction and the apply attention
-        latent, recon = self.autoencoder(x)
-        atten_latent = self.attention(latent)
 
-        current_input = atten_latent
+        current_input = x
 
         # Forward pass through the hidden layers
         for i, (layer, dropout) in enumerate(zip(self.layers[:-1],self.dropouts)):
@@ -279,7 +206,7 @@ class ClassificationNeuralNetwork(nn.Module):
         # Output layer (no activation for regression)
         output = self.layers[-1](current_input)
 
-        return output, recon
+        return output
 
 
 class NNClassifier:
@@ -324,7 +251,6 @@ class NNClassifier:
         # Initailiaze model
         self.model = ClassificationNeuralNetwork(
             input_dim=self.params['input_dim'],
-            latent_dim=self.params['latent_dim'],
             output_dim=self.params['output_dim'],
             hidden_dim=self.params['hidden_dim'],
             use_batch_norm=self.params['use_batch_norm'],
@@ -335,7 +261,6 @@ class NNClassifier:
 
         # Loss function and evaluation for classification
         criterion_classification = nn.CrossEntropyLoss(weight=self.class_weight_tensor)
-        criterion_reconstruction = nn.MSELoss()
         optimizer = torch.optim.Adam(params=self.model.parameters(),
                                      lr=self.params['lr'],
                                      weight_decay=self.params['weight_decay'])
@@ -362,14 +287,13 @@ class NNClassifier:
                 optimizer.zero_grad()
 
                 # Forward pass
-                preds, reconstructed = self.model(features)
+                preds = self.model(features)
 
                 # Calculate loss
                 classification_loss = criterion_classification(preds,targets)
-                reconstruction_loss = criterion_reconstruction(reconstructed,features)
 
                 # Combined loss - adjust weight of the reconstruction loss
-                total_loss = classification_loss + (self.params['reconstruction_weight'] * reconstruction_loss)
+                total_loss = classification_loss 
 
                 # Backward pass
                 total_loss.backward()
@@ -399,11 +323,10 @@ class NNClassifier:
                     features = batch['x'].to(device)
                     targets = batch['n_classes'].to(device)
 
-                    preds, reconstructed = self.model(features)
+                    preds = self.model(features)
 
                     classification_loss = criterion_classification(preds,targets)
-                    reconstruction_loss = criterion_reconstruction(reconstructed,features)
-                    total_loss = classification_loss + (self.params['reconstruction_weight']*reconstruction_loss)
+                    total_loss = classification_loss 
 
                     val_loss += total_loss.item()
 
@@ -461,7 +384,7 @@ class NNClassifier:
                 features = batch['x'].to(device)
                 targets = batch['n_classes'].to(device)
 
-                preds, _ = self.model(features)
+                preds = self.model(features)
                 loss = criterion(preds,targets)
                 class_lossses.append(loss.item())
 
@@ -495,7 +418,7 @@ class NNClassifier:
         with torch.no_grad():
             for batch in loader:
                 features = batch['x'].to(self.device)
-                outputs, _ = self.model(features)
+                outputs = self.model(features)
                 
                 probs = F.softmax(outputs, dim=1).cpu().numpy()
                 preds = np.argmax(probs, axis=1)
@@ -507,5 +430,44 @@ class NNClassifier:
         
         return {
             'predictions': all_preds,
-            'predictions_probabilities': np.array(all_preds_prob)
+            'probabilities': np.array(all_preds_prob)
         }
+    
+
+def run_nn_classifier(X_train,y_train, X_test,y_test,device="cuda",
+                      tune_hyperparams=False,params=None,
+                          n_trials=20,timeout=1200):
+        # Use default if params not given
+        if params is None:
+            params = default_params()
+        else:
+            default = default_params()
+            default.update(params)
+            params = default
+
+        # Update input dimension based on actual data
+        params['input_dim'] = X_train.shape[1]
+        params['output_dim'] = len(np.unique(y_train))
+
+        
+        if tune_hyperparams:
+            # Split validation set from training data
+            X_train_split, X_val, y_train_split, y_val = train_test_split(
+                X_train,y_train, test_size=0.2, random_state=42, stratify=y_train
+            )
+
+            tuner = NNTuner(X_train_split, y_train_split, X_val, y_val, 
+                                   params, device=device, n_trials=n_trials, timeout=timeout)
+            best_params, best_score = tuner.tune()
+            params.update(best_params)
+            print("Using best params:", params)
+
+        # Train final model on full training data
+        model = NNClassifier(params, device=device)
+        model.fit(X_train, y_train)
+
+        results = model.evaluate(X_test, y_test)
+        print("\nClassification Report:")
+        print(classification_report(results['targets'], results['predictions']))
+        print("\nAccuracy:", results['class_accuracy'])
+        return model
