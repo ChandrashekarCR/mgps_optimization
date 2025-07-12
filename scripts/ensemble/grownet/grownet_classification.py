@@ -30,7 +30,7 @@ warnings.filterwarnings('ignore')
 def default_params():
     return {
         "hidden_size": 256,
-        "num_nets": 30,
+        "num_nets": 10,
         "boost_rate": 0.4,
         "lr": 1e-3,
         "weight_decay": 1e-5,
@@ -376,6 +376,7 @@ class GrowNetClassifier:
     def evaluate(self, X, y):
         self.net_ensemble.to_eval()
         all_preds = []
+        all_preds_prob = []
         all_targets = []
         class_losses = []
         y = self._one_hot(y)
@@ -390,13 +391,16 @@ class GrowNetClassifier:
                 class_losses.append(loss.item())
                 preds = torch.argmax(logits, dim=1).cpu().numpy()
                 labs = torch.argmax(targets, dim=1).cpu().numpy()
+                probs = torch.softmax(logits,dim=1).cpu().numpy()
                 all_preds.extend(preds)
+                all_preds_prob.extend(probs)
                 all_targets.extend(labs)
         acc = accuracy_score(all_targets, all_preds)
         return {
             'class_loss': np.mean(class_losses),
             'class_accuracy': acc,
             'predictions': all_preds,
+            'probabilities': np.array(all_preds_prob),
             'targets': all_targets
         }
     
@@ -418,7 +422,7 @@ class GrowNetClassifier:
             'probabilities': np.array(all_preds_prob)        
         }
     
-def run_grownet(X_train,y_train,X_test,y_test,params=None,
+def run_grownet_classifier(X_train,y_train,X_test,y_test,params=None,
                 tune_hyperparams = False, n_trials=20,timeout=1200,device="cuda"):
     # Use deafult if params not given
     if params is None:
@@ -445,4 +449,10 @@ def run_grownet(X_train,y_train,X_test,y_test,params=None,
     print("\nClassification Report:")
     print(classification_report(results['targets'], results['predictions']))
     print("\nAccuracy:", results['class_accuracy'])
-    return model
+    return {
+        'model': model,
+        'predictions': results['predictions'],
+        'predicted_probabilities': results['probabilities'],
+        'accuracy': results['class_accuracy'],
+        'params': params
+    }

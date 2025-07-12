@@ -133,8 +133,8 @@ class ClassificationNeuralNetwork(nn.Module):
 
         Parameters:
         - input_size: Number of input features. In this case it is the GITs. # 200
-        - hidden_layers: List of hidden layers # 256, 128 are the default
-        - output_size: Number of continents
+        - hidden_layers: List of hidden layers # 128, 64 are the default
+        - output_size: Number of classes
         - dropout_rate: [0.2, 0.7]
         - random_state: Random state for reporducibility
         
@@ -373,6 +373,7 @@ class NNClassifier:
         all_preds = []
         all_targets = []
         class_lossses = []
+        all_preds_prob = []
 
         dataset = TrainDataset(X,y)
         loader = DataLoader(dataset,batch_size=self.params['batch_size'],shuffle=False)
@@ -388,15 +389,18 @@ class NNClassifier:
                 loss = criterion(preds,targets)
                 class_lossses.append(loss.item())
 
+                probs = F.softmax(preds, dim=1).cpu().numpy()
                 _, predicted = torch.max(preds,1)
                 all_preds.extend(predicted.cpu().numpy())
                 all_targets.extend(targets.cpu().numpy())
+                all_preds_prob.extend(probs)
 
         acc = accuracy_score(all_targets, all_preds)
 
         return {
                 'class_loss': np.mean(class_lossses),
                 'class_accuracy': acc,
+                'probabilities':np.array(all_preds_prob),
                 'predictions': all_preds,
                 'targets': all_targets
             }
@@ -470,4 +474,10 @@ def run_nn_classifier(X_train,y_train, X_test,y_test,device="cuda",
         print("\nClassification Report:")
         print(classification_report(results['targets'], results['predictions']))
         print("\nAccuracy:", results['class_accuracy'])
-        return model
+        return {
+        'model': model,
+        'predictions': results['predictions'],
+        'predicted_probabilities': results['probabilities'],
+        'accuracy': results['class_accuracy'],
+        'params': params
+    }

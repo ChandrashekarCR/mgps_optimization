@@ -6,7 +6,7 @@
 import pandas as pd
 import numpy as np
 from sklearn.preprocessing import LabelEncoder, StandardScaler
-from sklearn.model_selection import train_test_split
+from sklearn.model_selection import train_test_split, StratifiedKFold
 from sklearn.metrics import classification_report, confusion_matrix
 from sklearn.linear_model import LogisticRegression
 
@@ -18,7 +18,7 @@ import seaborn as sns
 from xgboost_ensemble.xgboost_classification import XGBoostTuner, run_xgboost_classifier
 from random_forest.randomforest_classification import RandomForestTuner
 from tab_pfn.tab_pfn_classificaiton import TabPFNModel, run_tabpfn_classifier
-from grownet.grownet_classification import GrowNetClassifier, GrowNetTuner, run_grownet
+from grownet.grownet_classification import GrowNetClassifier, GrowNetTuner, run_grownet_classifier
 from simple_nn.nn_classification import run_nn_classifier
 from ft_transformer.ft_transformer_classification import run_ft_transformer_classifier
 
@@ -70,8 +70,8 @@ def process_data_hierarchical(df):
         'y_continent': y_continent,
         'y_city': y_city,
         'y_coords': y_coords, # This is for neural networks.
-        'y_latitude': df['latitude'].values,
-        'y_longitude':df['longitude'].values,
+        'y_latitude': df['latitude'].values, # This is for XGBoost
+        'y_longitude':df['longitude'].values, # This is for XGBoost
         'encoders': {
             'continent': continent_encoder,
             'city': city_encoder,
@@ -85,43 +85,165 @@ def process_data_hierarchical(df):
 df = pd.read_csv("/home/chandru/binp37/results/metasub/metasub_training_testing_data.csv")
 processed_data = process_data_hierarchical(df)
 
+print(f"Continent Layer")
 
-X = processed_data['x_cont']
-y = processed_data['y_continent']
+X_cont = processed_data['x_cont']
+y_cont = processed_data['y_continent']
 
-# Split
-X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42, stratify=y)
+# Split data into train and test data
+X_train_cont, X_test_cont, y_train_cont, y_test_cont = train_test_split(X_cont, y_cont, test_size=0.2, random_state=42, stratify=y_cont)
 
-# XGBoost Model
-xgboost_tuned = run_xgboost_classifier(X_train, y_train, X_test, y_test, tune_hyperparams=True, n_trials=50, timeout=1800)
-xgboost_model = xgboost_tuned['model']
+# Split the same dataset to tune the hyperparameters for the model but with differernt random state
+X_train_cont_hyper,X_test_cont_hyper,y_train_cont_hyper,y_test_cont_hyper = train_test_split(X_cont,y_cont,test_size=0.2,random_state=101,stratify=y_cont)
 
-# Run prediciton on the training dataset to get probabilities
-prob_xgb = xgboost_model.predict_proba(X_train)
+print("Generating cross-validation predictions for continent layer.")
 
-# TabPFN model
-tabpfn_tuned = run_tabpfn_classifier(X_train,y_train,X_test,
-                                     y_test,tune_hyperparams=True,
-                                     device='cuda',
-                                     custom_params={'max_time':500})
-tabpfn_model = tabpfn_tuned['model']
+# Initialize arrays for storing CV predictions
+n_train_samples = X_train_cont.shape[0]
+n_continent_classes = len(np.unique(y_train_cont))
 
-# Run prediction on the training dataset to get the prbabilities
-prob_tabpfn = tabpfn_model.predict_proba(X_train)
+oof_probs = {
+    'xgb':np.zeros((n_train_samples, n_continent_classes)),
+    'grownet':np.zeros((n_train_samples, n_continent_classes)),
+    'nn': np.zeros((n_train_samples, n_continent_classes))
+}
 
-# Grownet model
-grownet_model = run_grownet(X_train,y_train, X_test, y_test, tune_hyperparams=True,timeout=1200)
-prob_grownet = grownet_model.predict(X_train)['probabilities']
 
-# Neural Network
-nn_model = run_nn_classifier(
-    X_train=X_train,
-    y_train=y_train,
-    X_test=X_test,
-    y_test=y_test,
-    tune_hyperparams=True,n_trials=20,timeout=1000)
+# Tune the hyperparameters once using the subset generated
+tune_hyperparams = False
+if tune_hyperparams:
+    print("Tuning hyperparameters for the contient predictions")
+    xgboost_continent_tune_result = run_xgboost_classifier(X_train_cont_hyper,X_test_cont_hyper,y_train_cont_hyper,y_test_cont_hyper,tune_hyperparams=True,
+                                         n_trials=50,timeout=1800)
+    best_xgboost_cont_params = xgboost_continent_tune_result['params']
 
-prob_nn = nn_model.predict(X_train)['probabilities']
+    grownet_continent_tune_result = run_grownet_classifier(X_train_cont_hyper,y_train_cont_hyper,X_test_cont_hyper,y_test_cont_hyper,tune_hyperparams=True,
+                                                n_trials=50,timeout=1800)
+    best_grownet_cont_params = grownet_continent_tune_result['params']
+
+    nn_continent_tune_result = run_nn_classifier(X_train_cont_hyper,y_train_cont_hyper,X_test_cont_hyper,y_test_cont_hyper,tune_hyperparams=True,
+                                                 n_trials=50, timeout=1800)
+    best_nn_cont_params = nn_continent_tune_result['params']
+
+
+else:
+    best_xgboost_cont_params = None
+    best_grownet_cont_params = None
+    best_nn_cont_params = None
+
+
+K = 3
+skf = StratifiedKFold(n_splits=K,shuffle=True,random_state=42)
+# Store models for test predictions
+continent_models = []
+
+# Cross validation for contient predictions
+for fold, (train_idx, val_idx) in enumerate(skf.split(X_train_cont,y_train_cont)):
+
+    print(f"Fold {fold+1}/{K}")
+
+    # Split data for this fold
+    X_fold_train, X_fold_val = X_train_cont[train_idx], X_train_cont[val_idx]
+    y_fold_train, y_fold_val = y_train_cont[train_idx], y_train_cont[val_idx]
+
+    # Train the models
+    # 1) XGBoost model
+    print(f"Running XGBoost model on Fold {fold+1}/{K}")
+    xgboost_fold_result = run_xgboost_classifier(X_train=X_fold_train,y_train=y_fold_train,X_test=X_fold_val,y_test=y_fold_val,
+                                         tune_hyperparams=False,custom_params=best_xgboost_cont_params)
+    
+    # 2) Grownet model
+    print(f"Running GrowNet model on Fold {fold+1}/{K}")
+    grownet_fold_result = run_grownet_classifier(X_train=X_fold_train,y_train=y_fold_train,X_test=X_fold_val,y_test=y_fold_val,
+                                         tune_hyperparams=False,params=best_grownet_cont_params)
+    
+    # 3) Neural Network model
+    print(f"Neural network model on Fold {fold+1}/{K}")
+    nn_fold_result = run_nn_classifier(X_train=X_fold_train,y_train=y_fold_train,X_test=X_fold_val,y_test=y_fold_val,
+                                       tune_hyperparams=False,params=best_nn_cont_params)
+
+    
+    # Store the out-of-fold predictions
+    oof_probs['xgb'][val_idx] = xgboost_fold_result['predicted_probabilities']
+    oof_probs['grownet'][val_idx] = grownet_fold_result['predicted_probabilities']
+    oof_probs['nn'][val_idx] = nn_fold_result['predicted_probabilities']
+
+
+# Train final continent model on full training data for test predictions
+print("Training on the entire train dataset")
+
+# 1) XGBoost
+xgboost_contient_model = run_xgboost_classifier(X_train_cont,y_train_cont,X_test_cont,y_test_cont,custom_params=best_xgboost_cont_params)
+# Get the test predictions for continents
+continent_test_xgboost_meta_features = xgboost_contient_model['predicted_probabilities']
+
+# 2) GrowNet
+grownet_continent_model = run_grownet_classifier(X_train_cont,y_train_cont,X_test_cont,y_test_cont,params=best_grownet_cont_params,
+                                                tune_hyperparams=False)
+continent_test_grownet_meta_features = grownet_continent_model['predicted_probabilities']
+
+# 3) Neural Networks
+nn_continent_model = run_nn_classifier(X_train_cont,y_train_cont,X_test_cont,y_test_cont,params=best_nn_cont_params,
+                                       tune_hyperparams=False)
+continent_test_nn_meta_features = nn_continent_model['predicted_probabilities']
+
+# Stacking for the meta model
+meta_X_train = np.hstack([oof_probs['xgb'],oof_probs['grownet'],oof_probs['nn']])
+meta_X_test = np.hstack([
+    continent_test_xgboost_meta_features.reshape(1,-1) if continent_test_xgboost_meta_features.ndim == 1 else continent_test_xgboost_meta_features,
+    continent_test_grownet_meta_features.reshape(1,-1) if continent_test_grownet_meta_features.ndim == 1 else continent_test_grownet_meta_features,
+    continent_test_nn_meta_features.reshape(1,-1) if continent_test_nn_meta_features.ndim == 1 else continent_test_nn_meta_features
+])
+
+
+# Train the meta model for contient predictions
+print("Training the continent meta model")
+continent_meta_model = LogisticRegression(multi_class="multinomial",max_iter=1000)
+continent_meta_model.fit(meta_X_train,y_train_cont)
+
+# Evaluate continent predictions
+continent_train_preds = continent_meta_model.predict(meta_X_train)
+continent_test_preds = continent_meta_model.predict(meta_X_test)
+
+print("Continent Prediction - Train Set:")
+print(classification_report(y_train_cont, continent_train_preds, target_names=processed_data['continents']))
+
+print("\nContinent Prediction - Test Set:")
+print(classification_report(y_test_cont, continent_test_preds, target_names=processed_data['continents']))
+
+print("City Layer")
+y_cities = processed_data['y_city']
+y_city_train,y_city_test = train_test_split(y_cities,test_size=0.2,random_state=42)
+
+# Augment original features with continent predictions
+X_cities_train = np.hstack([X_train_cont,meta_X_train])
+X_cities_test = np.hstack([X_test_cont,continent_test_xgboost_meta_features.reshape(1,-1) if continent_test_xgboost_meta_features.ndim == 1 else continent_test_xgboost_meta_features])
+
+
+
+## TabPFN model
+#tabpfn_tuned = run_tabpfn_classifier(X_train,y_train,X_test,
+#                                     y_test,tune_hyperparams=True,
+#                                     device='cuda',
+#                                     custom_params={'max_time':500})
+#tabpfn_model = tabpfn_tuned['model']
+#
+## Run prediction on the training dataset to get the prbabilities
+#prob_tabpfn = tabpfn_model.predict_proba(X_train)
+#
+## Grownet model
+#grownet_model = run_grownet(X_train,y_train, X_test, y_test, tune_hyperparams=True,timeout=1200)
+#prob_grownet = grownet_model.predict(X_train)['probabilities']
+#
+## Neural Network
+#nn_model = run_nn_classifier(
+#    X_train=X_train,
+#    y_train=y_train,
+#    X_test=X_test,
+#    y_test=y_test,
+#    tune_hyperparams=True,n_trials=20,timeout=1000)
+#
+#prob_nn = nn_model.predict(X_train)['probabilities']
 
 ## FT-Transformer
 #ft_model = run_ft_transformer_classifier(
@@ -133,23 +255,3 @@ prob_nn = nn_model.predict(X_train)['probabilities']
 #)
 #
 #print(ft_model.predict(X_train)['probabilities'])
-
-train_meta_features = np.hstack([prob_xgb, prob_tabpfn, prob_grownet, prob_nn])
-
-# Repeat for test set
-proba_xgb_test = xgboost_model.predict_proba(X_test)
-proba_tabpfn_test = tabpfn_model.predict_proba(X_test)
-proba_grownet_test =  grownet_model.predict(X_test)['probabilities']
-proba_nn_test = nn_model.predict(X_test)['probabilities']
-
-test_meta_features = np.hstack([proba_xgb_test, proba_tabpfn_test, proba_grownet_test, proba_nn_test])
-
-
-meta_model = LogisticRegression(max_iter=1000)
-meta_model.fit(train_meta_features, y_train)
-
-meta_preds_test = meta_model.predict(test_meta_features)
-meta_preds_train = meta_model.predict(train_meta_features)
-
-print(classification_report(y_test, meta_preds_test, target_names=processed_data['continents']))
-print(classification_report(y_train,meta_preds_train, target_names=processed_data['continents']))
