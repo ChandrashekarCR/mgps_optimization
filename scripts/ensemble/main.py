@@ -10,6 +10,7 @@ from sklearn.model_selection import train_test_split, StratifiedKFold, Stratifie
 from sklearn.metrics import classification_report, confusion_matrix, accuracy_score
 from sklearn.linear_model import LogisticRegression
 import xgboost as xgb
+from imblearn.over_sampling import SMOTE
 
 # Plotting libraries
 import matplotlib.pyplot as plt
@@ -20,13 +21,24 @@ from xgboost_ensemble.xgboost_classification import run_xgboost_classifier
 from xgboost_ensemble.xgboost_regression import run_xgboost_regressor
 from tab_pfn.tab_pfn_classificaiton import run_tabpfn_classifier
 from tab_pfn.tab_pfn_regression import run_tabpfn_regressor
+from lightgbm_ensemble_model.lightgbm_classification import run_lightgbm_classifier
 from grownet.grownet_classification import run_grownet_classifier
 from grownet.grownet_regressor import run_grownet_regressor
 from simple_nn.nn_classification import run_nn_classifier
 from simple_nn.nn_regression import run_nn_regressor
 from ft_transformer.ft_transformer_classification import run_ft_transformer_classifier
+from encoder.microbe_autoencoder import train_autoencoder, MicrobiomeAutoencoder
 
 
+# Geo pandas for plotting
+import geopandas as gpd
+from shapely.geometry import Point
+from scipy.spatial import cKDTree
+from geopy.distance import geodesic 
+from shapely.geometry import Point
+
+# Import deep learning libraries
+import torch
 
 # Load and process the dataset
 # Data processing function for hierarchical model
@@ -146,6 +158,39 @@ def xyz_to_latlon(xyz_coords):
 
     return np.stack([lat_deg,lon_deg],axis=1)
 
+# Plot the points on the world map for visualization
+def plot_points_on_world_map(true_lat, true_long, predicted_lat, predicted_long, filename):
+    """
+    Plots true and predicted latitude and longitude on a world map.
+    Args:
+        true_lat: True latitude value
+        true_long: True longitude value
+        predicted_lat: Prediction by the neural netwrok
+        predicted_long: Prediction by the neural network
+        filename: Path and the name of the file to save the plot.
+    Returns:
+        A figure is saved in the correct directory.
+    """
+    # A file that is required to load the world map with proper countries
+    world = gpd.read_file("/home/chandru/binp37/data/geopandas/ne_110m_admin_0_countries.shp") 
+    fig, ax = plt.subplots(1, 1, figsize=(12, 6))
+    world.plot(ax=ax, color='lightgray', edgecolor='black')
+    # Plot true locations
+    geometry_true = [Point(xy) for xy in zip(true_long, true_lat)]
+    geo_df_true = gpd.GeoDataFrame(geometry_true, crs=world.crs, geometry=geometry_true) 
+    geo_df_true.plot(ax=ax, marker='o', color='blue', markersize=15, label='True Locations')
+    # Plot predicted locations
+    geometry_predicted = [Point(xy) for xy in zip(predicted_long, predicted_lat)]
+    geo_df_predicted = gpd.GeoDataFrame(geometry_predicted, crs=world.crs, geometry=geometry_predicted) 
+    geo_df_predicted.plot(ax=ax, marker='x', color='red', markersize=15, label='Predicted Locations')
+    ax.set_xlabel('Longitude')
+    ax.set_ylabel('Latitude')
+    ax.set_title('True vs. Predicted Locations on World Map')
+    ax.legend(loc='upper right')
+    plt.tight_layout()
+    plt.savefig(filename) # Save the plot as an image
+    plt.show()
+
 
 def train_hierarchical_layer(
         X_train,
@@ -157,7 +202,9 @@ def train_hierarchical_layer(
         run_grownet_classifier=None,
         run_nn_classifier=None,
         run_tabpfn_classifier=None,
+        run_lightgbm_classifier=None,
         tune_hyperparams=False,
+        apply_smote = False,
         random_state=42,
         n_splits=3
 ):
@@ -200,6 +247,11 @@ def train_hierarchical_layer(
             'name': 'TabPFN',
             'function': run_tabpfn_classifier,
             'enabled': run_tabpfn_classifier is not None
+        },
+        'lightgbm': {
+            'name': 'LightGBM',
+            'function':run_lightgbm_classifier,
+            'enabled':run_lightgbm_classifier is not None
         }
     }
     
@@ -228,23 +280,29 @@ def train_hierarchical_layer(
             try:
                 if model_key == 'xgb':
                     result = config['function'](
-                        X_train_hyper, X_test_hyper, y_train_hyper, y_test_hyper,
+                        X_train_hyper,y_train_hyper, X_test_hyper, y_test_hyper,
                         tune_hyperparams=True, n_trials=50, timeout=1800
                     )
                 elif model_key == 'grownet':
                     result = config['function'](
-                        X_train_hyper, X_test_hyper, y_train_hyper, y_test_hyper,
+                        X_train_hyper, y_train_hyper, X_test_hyper, y_test_hyper,
                         tune_hyperparams=True, n_trials=50, timeout=1800
                     )
                 elif model_key == 'nn':
                     result = config['function'](
-                        X_train_hyper, X_test_hyper, y_train_hyper, y_test_hyper,
+                        X_train_hyper, y_train_hyper, X_test_hyper, y_test_hyper,
                         tune_hyperparams=True, n_trials=50, timeout=1800
                     )
                 elif model_key == 'tabpfn':
                     result = config['function'](
                         X_train_hyper, y_train_hyper, X_test_hyper, y_test_hyper,
                         tune_hyperparams=True, max_time=300
+                    )
+
+                elif model_key == 'lightgbm':
+                    result = config['function'](
+                        X_train_hyper, y_train_hyper, X_test_hyper, y_test_hyper,
+                        tune_hyperparams=True,n_trials=50, max_time=1800
                     )
                 
                 best_params[model_key] = result['params']
@@ -275,6 +333,13 @@ def train_hierarchical_layer(
         # Split data for this fold
         X_fold_train, X_fold_val = X_train[train_idx], X_train[val_idx]
         y_fold_train, y_fold_val = y_train[train_idx], y_train[val_idx]
+        
+        if apply_smote:
+            print("Applying SMOTE to balance the datset.")
+            X_fold_train_balanced, y_fold_train_balanced = SMOTE(random_state=42).fit_resample(X_fold_train,y_fold_train)
+
+        else:
+            X_fold_train_balanced,y_fold_train_balanced = X_fold_train,y_fold_train
 
         # Train each enabled model
         for model_key, config in enabled_models.items():
@@ -284,13 +349,13 @@ def train_hierarchical_layer(
                 if model_key == 'tabpfn':
                     # TabPFN has different signature
                     fold_result = config['function'](
-                        X_fold_train, y_fold_train, X_fold_val, y_fold_val,
+                        X_fold_train_balanced, y_fold_train_balanced, X_fold_val, y_fold_val,
                         tune_hyperparams=False, params=best_params[model_key]
                     )
                 else:
                     # Other models have consistent signature
                     fold_result = config['function'](
-                        X_fold_train, y_fold_train, X_fold_val, y_fold_val,
+                        X_fold_train_balanced, y_fold_train_balanced, X_fold_val, y_fold_val,
                         tune_hyperparams=False, params=best_params[model_key]
                     )
                 
@@ -311,7 +376,7 @@ def train_hierarchical_layer(
     print(f"Meta training features shape: {meta_X_train.shape}")
 
     # Train final models on the full training data
-    print("\\nTraining final models on the full training data")
+    print("\nTraining final models on the full training data")
     test_results = {}
     
     for model_key, config in enabled_models.items():
@@ -351,7 +416,7 @@ def train_hierarchical_layer(
     print(f"Meta test features shape: {meta_X_test.shape}")
 
     # Train meta model
-    print("\\nTraining meta model...")
+    print("\nTraining meta model...")
     meta_model = xgb.XGBClassifier(objective='multi:softprob', random_state=random_state)
     meta_model.fit(meta_X_train, y_train)
 
@@ -360,7 +425,7 @@ def train_hierarchical_layer(
     test_preds = meta_model.predict(meta_X_test)
 
     # Print summary
-    print(f"\\nSummary:")
+    print(f"\nSummary:")
     print(f"- Used models: {list(enabled_models.keys())}")
     print(f"- Meta features: {meta_X_train.shape[1]}")
     print(f"- Meta model train accuracy: {accuracy_score(y_train, train_preds):.4f}")
@@ -537,7 +602,7 @@ def train_hierarchical_coordinate_layer(
     print(f"Meta training feature shape :{meta_X_train.shape}")
 
     # Train final models on the full training data
-    print("\\nTraining final models on the full training data")
+    print("\nTraining final models on the full training data")
     test_results = {}
     
     for model_key, config in enabled_models.items():
@@ -721,7 +786,9 @@ continent_model, meta_X_train_cont, meta_X_test_cont, train_preds, test_preds = 
     run_grownet_classifier=None,
     run_nn_classifier=None,
     run_tabpfn_classifier=run_tabpfn_classifier,
-    tune_hyperparams=False
+    run_lightgbm_classifier=run_lightgbm_classifier,
+    tune_hyperparams=False,
+    apply_smote=True,n_splits=5
 )
 print("Continent Prediction - Train Set:")
 print(classification_report(y_train_cont, train_preds, target_names=processed_data['continents']))
@@ -743,8 +810,10 @@ city_model, meta_X_train_city, meta_X_test_city, train_preds, test_preds = train
     processed_data=processed_data,
     run_xgboost_classifier=run_xgboost_classifier,
     run_grownet_classifier=None,
+    run_lightgbm_classifier=run_lightgbm_classifier,
     run_nn_classifier=None,
-    run_tabpfn_classifier=None,tune_hyperparams=False
+    run_tabpfn_classifier=None,tune_hyperparams=False,
+    apply_smote=False,n_splits=5
 )
 
 print("City Prediction - Train Set:")
@@ -768,14 +837,21 @@ coords_results = train_hierarchical_coordinate_layer(
     y_train_coords=y_train_coords,
     y_test_coords=y_test_coords,
     coord_scaler=processed_data['encoders']['coord'],
-    run_xgboost_regressor=None,
+    run_xgboost_regressor=run_xgboost_regressor,
     run_tabpfn_regressor=run_tabpfn_regressor,
     run_nn_regressor=None,
     run_grownet_regressor=None,
-    tune_hyperparams=False,n_splits=3
+    tune_hyperparams=False,n_splits=5
 )
 
 print("Coordinate prediction results:")
 print(f"Test Median Distance: {coords_results['test_metrics']['median_distance']:.2f} km")
 print(f"Test Mean Distance: {coords_results['test_metrics']['mean_distance']:.2f} km")
 print(f"Test 95th Percentile: {coords_results['test_metrics']['percentile_95']:.2f} km")
+
+
+plot_points_on_world_map(true_lat = y_test_lat,
+                         true_long=y_test_lon,
+                         predicted_lat=coords_results['test_preds'][:,0],
+                         predicted_long=coords_results['test_preds'][:,1],
+                         filename="test.png")
