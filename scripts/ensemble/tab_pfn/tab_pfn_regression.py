@@ -5,7 +5,7 @@ import torch
 from tabpfn import TabPFNRegressor
 from sklearn.metrics import mean_squared_error, mean_absolute_error, r2_score
 
-def run_tabpfn_regressor(X_train, y_train, X_test, y_test, params=None):
+def run_tabpfn_regressor(X_train, y_train, X_test, y_test, tune_hyperparams=False, params=None):
     """
     Runs three separate TabPFNRegressor models to predict x, y, z coordinates.
 
@@ -19,9 +19,6 @@ def run_tabpfn_regressor(X_train, y_train, X_test, y_test, params=None):
     Returns:
         Dictionary with predictions and evaluation metrics
     """
-    from tabpfn import TabPFNRegressor
-    from sklearn.metrics import mean_squared_error, mean_absolute_error, r2_score
-
     device = 'cuda' if torch.cuda.is_available() else 'cpu'
     if params and 'device' in params:
         device = params['device']
@@ -58,7 +55,7 @@ def run_tabpfn_regressor(X_train, y_train, X_test, y_test, params=None):
 
     return {
         'models': models,
-        'xyz_predictions': preds,
+        'predictions': preds,
         'lat_lon_predictions': np.stack([lat_pred_deg, lon_pred_deg], axis=1),
         'metrics': metrics
     }

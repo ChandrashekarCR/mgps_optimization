@@ -6,7 +6,7 @@
 import pandas as pd
 import numpy as np
 from sklearn.preprocessing import LabelEncoder, StandardScaler
-from sklearn.model_selection import train_test_split, StratifiedKFold, StratifiedShuffleSplit
+from sklearn.model_selection import train_test_split, StratifiedKFold, StratifiedShuffleSplit, KFold
 from sklearn.metrics import classification_report, confusion_matrix, accuracy_score
 from sklearn.linear_model import LogisticRegression
 import xgboost as xgb
@@ -109,51 +109,43 @@ def hierarchical_split(X_cont, y_continent, y_city, y_coords, y_lat, y_lon, test
     }
 
 
-# Process data
-df = pd.read_csv("/home/chandru/binp37/results/metasub/metasub_training_testing_data.csv")
-processed_data = process_data_hierarchical(df)
+def haversine_distance(lat1,lon1,lat2,lon2):
+    """
+    Calculate the great circle distance between two points on the earth
+    """
+    # Radius of the earth
+    R = 6371.0
 
-X_cont = processed_data['x_cont']
-y_cont = processed_data['y_continent']
-y_cities = processed_data['y_city']
-y_coords = processed_data['y_coords']
-y_latitude = processed_data['y_latitude']
-y_longitude = processed_data['y_longitude']
+    # Convert from degrees to radians
+    lat1_rad = np.radians(lat1)
+    lon1_rad = np.radians(lon1)
+    lat2_rad = np.radians(lat2)
+    lon2_rad = np.radians(lon2)
 
+    dlat = lat2_rad - lat1_rad
+    dlon = lon2_rad - lon1_rad
 
-split_data = hierarchical_split(
-    X_cont,
-    y_cont,
-    y_cities,
-    y_coords,
-    processed_data['y_latitude'],
-    processed_data['y_longitude']
-)
+    a = np.sin(dlat/2)**2 + np.cos(lat1_rad) * np.cos(lat2_rad) * np.sin(dlon/2) **2
+    c = 2 * np.arcsin(np.sqrt(a))
 
-# Training data for continent
-# Original feautres
-X_train_cont = split_data['X_train']
-X_test_cont = split_data['X_test']
+    return R * c # in kilometers
 
-# Train and test for continent
-y_train_cont = split_data['y_cont_train']
-y_test_cont = split_data['y_cont_test']
+def xyz_to_latlon(xyz_coords):
+    """
+    Convert the XYZ coordinates to latitude and longitude
+    """
+    x,y,z = xyz_coords[:,0],xyz_coords[:,1],xyz_coords[:,2]
 
-# Train and test for cities
-y_train_city = split_data['y_city_train']
-y_test_city = split_data['y_city_test']
+    # Convert to latitude and longitude
+    lat_rad = np.arcsin(np.clip(z,-1,1)) # Clip to avoid numerical issues
+    lon_rad = np.arctan2(y,x)
 
-# Train and test for latitude
-y_train_lat = split_data['y_lat_train']
-y_test_lat = split_data['y_lat_test']
+    # Convert to degrees
+    lat_deg = np.degrees(lat_rad)
+    lon_deg = np.degrees(lon_rad)
 
-# Train and test for longitude
-y_train_lon = split_data['y_lon_train']
-y_test_lon = split_data['y_lon_test']
+    return np.stack([lat_deg,lon_deg],axis=1)
 
-# Train and test for co-ordinates
-y_train_coords = split_data['y_coords_train']
-y_test_coords = split_data['y_coords_test']
 
 def train_hierarchical_layer(
         X_train,
@@ -376,7 +368,349 @@ def train_hierarchical_layer(
 
     return meta_model, meta_X_train, meta_X_test, train_preds, test_preds
 
+def train_hierarchical_coordinate_layer(
+        X_train, X_test, y_train_lat, y_train_lon,
+        y_test_lat, y_test_lon, y_train_coords,
+        y_test_coords, coord_scaler,
+        run_xgboost_regressor = None,
+        run_grownet_regressor = None,
+        run_nn_regressor = None,
+        run_tabpfn_regressor = None,
+        tune_hyperparams = False,
+        random_state = 42,
+        n_splits = 3
+):
+    """
+    Dynamic hierarchical coordinate prediction laer similar to the classification version.
+    """
 
+    # Define all possible models with their cofigurations
+    model_configs = {
+        'xgb':{
+            'name':'XGBoost',
+            'function':run_xgboost_regressor,
+            'enabled': run_xgboost_regressor is not None,
+            'prediction_type':'sequential' # XGBoost does sequential lat -> lon prediction
+        },
+        'grownet':{
+            'name':'GrowNet',
+            'function':run_grownet_regressor,
+            'enabled':run_grownet_regressor is not None,
+            'prediction_type':'xyz' # GrowNet predicts xyz coordinates
+        },
+        'nn':{
+            'name':'Neural Network',
+            'function': run_nn_regressor,
+            'enabled':run_nn_regressor is not None,
+            'prediction_type':'xyz' # Neural Network predictions xyz coordinates
+        },
+        'tabpfn':{
+            'name':'Tab PFN',
+            'function':run_tabpfn_regressor,
+            'enabled':run_tabpfn_regressor is not None,
+            'prediction_type':'xyz' # TabPFN predicts xyz coordinates
+        }
+    }
+
+    # Filter to only the enabled models
+    enabled_models = {k: v for k,v in model_configs.items() if v['enabled']}
+
+    if not enabled_models:
+        raise ValueError("At least one model function must be provided (not None)")
+    
+    print(f"Enabled models: {list(enabled_models.keys())}")
+
+    # Split the same data set to tune the hyperparameters for the mode byt with different random state
+    X_train_hyper, X_test_hyper, y_train_hyper_lat, y_test_hyper_lat = train_test_split(
+        X_train, y_train_lat, test_size=0.2, random_state=101
+    )
+    _, _, y_train_hyper_lon, y_test_hyper_lon = train_test_split(
+        X_train, y_train_lon, test_size=0.2, random_state=101
+    )
+    _, _, y_train_hyper_coords, y_test_hyper_coords = train_test_split(
+        X_train, y_train_coords, test_size=0.2, random_state=101
+    )
+
+    # Hyperparameter tuning for enabled models
+    best_params = {}
+    
+    if tune_hyperparams:
+        print("Tuning hyperparameters for the enabled models")
+        
+        for model_key, config in enabled_models.items():
+            print(f"Tuning {config['name']} hyperparameters...")
+            
+            # Write the tuning function here, Keep this empty now as I have not added tuning to the other scripts.
+    else:
+        # Initialiaze all as None
+        best_params = {model_key: None for model_key in enabled_models.keys()}
+
+    # Initialize arrays for storing CV predictions
+    kf = KFold(n_splits=n_splits,shuffle=True,random_state=random_state)
+    n_train_samples = X_train.shape[0]
+
+    # Only create oof arrays for enalbedl models (each model predictions lat and lon)
+    oof_predictions = {}
+    for model_key in enabled_models.keys():
+        oof_predictions[model_key] = np.zeros((n_train_samples,2)) # One for lat and one for long
+
+    # Cross validation loop
+    for fold, (train_idx, val_idx) in enumerate(kf.split(X_train)):
+
+        print(f"\nFold {fold+1}/{n_splits}")
+
+        # SPlit data for this fold
+        X_fold_train, X_fold_val = X_train[train_idx], X_train[val_idx]
+        y_fold_train_lat, y_fold_val_lat = y_train_lat[train_idx], y_train_lat[val_idx]
+        y_fold_train_lon, y_fold_val_lon = y_train_lon[train_idx], y_train_lon[val_idx]
+        y_fold_train_coords, y_fold_val_coords = y_train_coords[train_idx], y_train_coords[val_idx]
+
+        # Train each enabled model
+        for model_key, config in enabled_models.items():
+            print(f"Running {config['name']} model on Fold {fold+1}/{n_splits}")
+
+            try:
+                if model_key == "xgb":
+                    # XGBoost sequential prediction: lat first, then augment and predict lon
+
+                    # Predict latitude
+                    lat_result = config['function'](
+                        X_fold_train,y_fold_train_lat,X_fold_val,y_fold_val_lat,tune_hyperparams=False,params=best_params[model_key]
+                    )
+                    lat_pred_train = lat_result['model'].predict(X_fold_train)
+                    lat_pred_val = lat_result['predictions']
+
+                    # Augment features with predicted latitude for longitue prediction
+                    X_fold_train_aug = np.hstack([X_fold_train,lat_pred_train.reshape(-1,1)])
+                    X_fold_val_aug = np.hstack([X_fold_val,lat_pred_val.reshape(-1,1)])
+
+                    # Predict longitude
+                    lon_result = config['function'](
+                        X_fold_train_aug,y_fold_train_lon,X_fold_val_aug,y_fold_val_lon, tune_hyperparams=False,params = best_params[model_key]
+                    )
+                    lon_pred_val = lon_result['predictions']
+
+                    # Store predictions
+                    oof_predictions[model_key][val_idx,0] = lat_pred_val
+                    oof_predictions[model_key][val_idx,1] = lon_pred_val
+
+                elif model_key in ['grownet','nn']:
+                    # XYZ predictions models
+                    fold_result = config['function'](
+                        X_fold_train,y_fold_train_coords,X_fold_val,y_fold_val_coords,
+                        tune_hyperparams=False,params = best_params[model_key]
+                    )
+
+                    # Convert XYZ to lat/lon
+                    xyz_pred = fold_result['predictions']
+                    xyz_rescaled = coord_scaler.inverse_transform(xyz_pred)
+                    latlon_pred = xyz_to_latlon(xyz_rescaled)
+
+                    # Store predictions
+                    oof_predictions[model_key][val_idx] = latlon_pred
+                
+                elif model_key == 'tabpfn':
+                    # TabPFN xyz predictions
+                    fold_result = config['function'](
+                        X_fold_train,y_fold_train_coords,X_fold_val,y_fold_val_coords,
+                        tune_hyperparams=False, params = best_params[model_key]
+                    )
+
+                    # Convert XYZ to lat/lon
+                    xyz_pred = fold_result['predictions']
+                    xyz_rescaled = coord_scaler.inverse_transform(xyz_pred)
+                    latlon_pred = xyz_to_latlon(xyz_rescaled)
+
+                    # Store predictions
+                    oof_predictions[model_key][val_idx] = latlon_pred
+            except Exception as e:
+                print(f"Error running {config['name']} on fold {fold+1}: {e}")
+                # Fill with uniform probabilities as fallback
+                exit()
+
+    # Crate meta training features by concatenating all enabled model predictions
+    meta_features_list = []
+    for model_key in enabled_models.keys():
+        meta_features_list.append(oof_predictions[model_key])
+
+    meta_X_train = np.hstack(meta_features_list)
+    print(f"Meta training feature shape :{meta_X_train.shape}")
+
+    # Train final models on the full training data
+    print("\\nTraining final models on the full training data")
+    test_results = {}
+    
+    for model_key, config in enabled_models.items():
+        print(f"Training final {config['name']} model...")
+        
+        try:
+            if model_key == 'xgb':
+                # XGBoost sequential prediction on full data
+                lat_result = config['function'](
+                    X_train, y_train_lat, X_test, y_test_lat,
+                    params=best_params[model_key]
+                )
+                lat_pred_train = lat_result['model'].predict(X_train)
+                lat_pred_test = lat_result['predictions']
+                
+                # Augment and predict longitude
+                X_train_aug = np.hstack([X_train, lat_pred_train.reshape(-1, 1)])
+                X_test_aug = np.hstack([X_test, lat_pred_test.reshape(-1, 1)])
+                
+                lon_result = config['function'](
+                    X_train_aug, y_train_lon, X_test_aug, y_test_lon,
+                    params=best_params[model_key]
+                )
+                lon_pred_test = lon_result['predictions']
+                
+                test_results[model_key] = np.stack([lat_pred_test, lon_pred_test], axis=1)
+                
+            elif model_key in ['grownet', 'nn']:
+                # XYZ prediction models
+                result = config['function'](
+                    X_train, y_train_coords, X_test, y_test_coords,
+                    params=best_params[model_key]
+                )
+                
+                xyz_pred = result['predictions']
+                xyz_rescaled = coord_scaler.inverse_transform(xyz_pred)
+                latlon_pred = xyz_to_latlon(xyz_rescaled)
+                
+                test_results[model_key] = latlon_pred
+                
+            elif model_key == 'tabpfn':
+                # XYZ prediction models
+                result = config['function'](
+                    X_train, y_train_coords, X_test, y_test_coords,
+                    params=best_params[model_key]
+                )
+                
+                xyz_pred = result['predictions']
+                xyz_rescaled = coord_scaler.inverse_transform(xyz_pred)
+                latlon_pred = xyz_to_latlon(xyz_rescaled)
+                
+                test_results[model_key] = latlon_pred
+        except Exception as e:
+            print(f"Error training final {config['name']} model : {e}")
+            exit()
+
+    # Create meta test features
+    meta_test_feature_list = []
+    for model_key in enabled_models.keys():
+        preds = test_results[model_key]
+        meta_test_feature_list.append(preds)
+    
+    meta_X_test = np.hstack(meta_test_feature_list)
+    print(f"Meta test features shape: {meta_X_test.shape}")
+
+    # Train meta models (separate for lat and lon)
+    print("\nTraining meta models...")
+    
+    # Prepare targets
+    y_train_combined = np.stack([y_train_lat, y_train_lon], axis=1)
+    y_test_combined = np.stack([y_test_lat, y_test_lon], axis=1)
+    
+    # Train separate XGBoost models for latitude and longitude
+    meta_lat_model = xgb.XGBRegressor(objective='reg:squarederror', random_state=random_state)
+    meta_lon_model = xgb.XGBRegressor(objective='reg:squarederror', random_state=random_state)
+    
+    meta_lat_model.fit(meta_X_train, y_train_lat)
+    meta_lon_model.fit(meta_X_train, y_train_lon)
+
+    # Make predictions
+    train_lat_preds = meta_lat_model.predict(meta_X_train)
+    train_lon_preds = meta_lon_model.predict(meta_X_train)
+    train_preds = np.stack([train_lat_preds, train_lon_preds], axis=1)
+    
+    test_lat_preds = meta_lat_model.predict(meta_X_test)
+    test_lon_preds = meta_lon_model.predict(meta_X_test)
+    test_preds = np.stack([test_lat_preds, test_lon_preds], axis=1)
+
+# Calculate distance metrics
+    def calculate_distance_metrics(y_true, y_pred):
+        distances = haversine_distance(y_true[:, 0], y_true[:, 1], y_pred[:, 0], y_pred[:, 1])
+        return {
+            'median_distance': np.median(distances),
+            'mean_distance': np.mean(distances),
+            'percentile_95': np.percentile(distances, 95),
+            'percentile_99': np.percentile(distances, 99),
+            'distances': distances
+        }
+
+    train_metrics = calculate_distance_metrics(y_train_combined, train_preds)
+    test_metrics = calculate_distance_metrics(y_test_combined, test_preds)
+
+    # Print summary
+    print(f"\nSummary:")
+    print(f"- Used models: {list(enabled_models.keys())}")
+    print(f"- Meta features: {meta_X_train.shape[1]}")
+    print(f"- Meta model train median distance: {train_metrics['median_distance']:.2f} km")
+    print(f"- Meta model test median distance: {test_metrics['median_distance']:.2f} km")
+    print(f"- Meta model train mean distance: {train_metrics['mean_distance']:.2f} km")
+    print(f"- Meta model test mean distance: {test_metrics['mean_distance']:.2f} km")
+    print(f"- Meta model test 95th percentile: {test_metrics['percentile_95']:.2f} km")
+
+    return {
+        'meta_lat_model': meta_lat_model,
+        'meta_lon_model': meta_lon_model,
+        'meta_X_train': meta_X_train,
+        'meta_X_test': meta_X_test,
+        'train_preds': train_preds,
+        'test_preds': test_preds,
+        'train_metrics': train_metrics,
+        'test_metrics': test_metrics,
+        'individual_results': test_results,
+        'enabled_models': list(enabled_models.keys())
+    }
+
+# Process data
+df = pd.read_csv("/home/chandru/binp37/results/metasub/metasub_training_testing_data.csv")
+processed_data = process_data_hierarchical(df)
+
+X_cont = processed_data['x_cont']
+y_cont = processed_data['y_continent']
+y_cities = processed_data['y_city']
+y_coords = processed_data['y_coords']
+y_latitude = processed_data['y_latitude']
+y_longitude = processed_data['y_longitude']
+
+
+split_data = hierarchical_split(
+    X_cont,
+    y_cont,
+    y_cities,
+    y_coords,
+    processed_data['y_latitude'],
+    processed_data['y_longitude']
+)
+
+# Training data for continent
+# Original feautres
+X_train_cont = split_data['X_train']
+X_test_cont = split_data['X_test']
+
+# Train and test for continent
+y_train_cont = split_data['y_cont_train']
+y_test_cont = split_data['y_cont_test']
+
+# Train and test for cities
+y_train_city = split_data['y_city_train']
+y_test_city = split_data['y_city_test']
+
+# Train and test for latitude
+y_train_lat = split_data['y_lat_train']
+y_test_lat = split_data['y_lat_test']
+
+# Train and test for longitude
+y_train_lon = split_data['y_lon_train']
+y_test_lon = split_data['y_lon_test']
+
+# Train and test for co-ordinates
+y_train_coords = split_data['y_coords_train']
+y_test_coords = split_data['y_coords_test']
+
+
+# Continent layer
 continent_model, meta_X_train_cont, meta_X_test_cont, train_preds, test_preds = train_hierarchical_layer(
     X_train=X_train_cont,
     X_test=X_test_cont,
@@ -395,6 +729,8 @@ print(classification_report(y_train_cont, train_preds, target_names=processed_da
 print("\nContinent Prediction - Test Set:")
 print(classification_report(y_test_cont, test_preds,target_names=processed_data['continents']))
 
+
+# City layer 
 
 X_train_city = np.hstack([X_train_cont,meta_X_train_cont])
 X_test_city = np.hstack([X_test_cont,meta_X_test_cont])
@@ -416,101 +752,30 @@ print(classification_report(y_train_city,train_preds,target_names=processed_data
 
 print("\nCity Prediction - Test Set:")
 print(classification_report(y_test_city,test_preds))
-#
-#X_train_coord = np.hstack([X_train_city,meta_X_train_city])
-#X_test_coord = np.hstack([X_test_city,meta_X_test_city])
-#
-lat_model = run_xgboost_regressor(
-    X_train=X_train_city,
-    y_train=y_train_lat,
-    X_test=X_test_city,
-    y_test=y_test_lat,
-    tune_hyperparams=False
+
+# Coordinate layer
+
+X_train_coord = np.hstack([X_train_city,meta_X_train_city])
+X_test_coord = np.hstack([X_test_city,meta_X_test_city])
+
+coords_results = train_hierarchical_coordinate_layer(
+    X_train=X_train_coord,
+    X_test=X_test_coord,
+    y_train_lat=y_train_lat,
+    y_train_lon = y_train_lon,
+    y_test_lat=y_test_lat,
+    y_test_lon=y_test_lon,
+    y_train_coords=y_train_coords,
+    y_test_coords=y_test_coords,
+    coord_scaler=processed_data['encoders']['coord'],
+    run_xgboost_regressor=None,
+    run_tabpfn_regressor=run_tabpfn_regressor,
+    run_nn_regressor=None,
+    run_grownet_regressor=None,
+    tune_hyperparams=False,n_splits=3
 )
 
-lon_model = run_xgboost_regressor(
-    X_train=X_train_cont,
-    y_train=y_train_lon,
-    X_test=X_test_cont,
-    y_test=y_test_lon,
-    tune_hyperparams=False
-)
-
-print(lat_model['predictions'],lon_model['predictions'])
-
-
-
-#results = run_grownet_regressor(
-#    X_train=X_train_cont,
-#    y_train=y_train_coords,
-#    X_test=X_test_cont,
-#    y_test=y_test_coords)
-#
-#print(results['predictions'].shape)
-#
-#results = run_nn_regressor(
-#     X_train=X_train_cont,
-#    y_train=y_train_coords,
-#    X_test=X_test_cont,
-#    y_test=y_test_coords
-#)
-#
-#print(results['predictions'].shape)
-#
-#
-#results = run_tabpfn_regressor(
-#    X_train=X_train_cont,
-#    y_train=y_train_coords,
-#    X_test=X_test_cont,
-#    y_test=y_test_coords
-#)
-#
-#xyz = results['xyz_predictions']
-#print(xyz.shape)
-
-#xyz_rescaled = processed_data['encoders']['coord'].inverse_transform(xyz)
-#
-## Rescaled predictions (x, y, z) -> radians
-#x, y, z = xyz_rescaled[:, 0], xyz_rescaled[:, 1], xyz_rescaled[:, 2]
-#lat_pred_rad = np.arcsin(z)
-#lon_pred_rad = np.arctan2(y, x)
-#
-## Convert to degrees
-#lat_pred_deg = np.degrees(lat_pred_rad)
-#lon_pred_deg = np.degrees(lon_pred_rad)
-#
-#
-lat_true_deg = y_test_lat
-lon_true_deg = y_test_lon
-#
-from math import radians, sin, cos, sqrt, atan2
-#
-def haversine_distance(lat1, lon1, lat2, lon2):
-    # Radius of Earth in kilometers
-    R = 6371.0
-
-    # Convert from degrees to radians
-    lat1_rad = np.radians(lat1)
-    lon1_rad = np.radians(lon1)
-    lat2_rad = np.radians(lat2)
-    lon2_rad = np.radians(lon2)
-
-    dlat = lat2_rad - lat1_rad
-    dlon = lon2_rad - lon1_rad
-
-    a = np.sin(dlat / 2)**2 + np.cos(lat1_rad) * np.cos(lat2_rad) * np.sin(dlon / 2)**2
-    c = 2 * np.arcsin(np.sqrt(a))
-
-    return R * c  # in kilometers
-
-lat_pred_deg = lat_model['predictions']
-lon_pred_deg = lon_model['predictions']
-
-
-distances = haversine_distance(lat_true_deg, lon_true_deg, lat_pred_deg, lon_pred_deg)
-
-# Median and other stats
-print(f"Median Haversine Distance: {np.median(distances):.2f} km")
-print(f"Mean Haversine Distance: {np.mean(distances):.2f} km")
-print(f"95th Percentile Distance: {np.percentile(distances, 95):.2f} km")
-#
+print("Coordinate prediction results:")
+print(f"Test Median Distance: {coords_results['test_metrics']['median_distance']:.2f} km")
+print(f"Test Mean Distance: {coords_results['test_metrics']['mean_distance']:.2f} km")
+print(f"Test 95th Percentile: {coords_results['test_metrics']['percentile_95']:.2f} km")

@@ -395,7 +395,7 @@ def run_nn_regressor(X_train, y_train, X_test, y_test, device="cuda",
     print(f"MSE: {results['mse']:.4f}")
     print(f"MAE: {results['mae']:.4f}")
     print(f"RMSE: {results['rmse']:.4f}")
-    print(f"R²: {results['r2']:.4f}")
+    print(f"R2: {results['r2']:.4f}")
     
     return {
         'model': model,
