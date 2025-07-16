@@ -1,6 +1,7 @@
 # The main ensemble model
 
 # Import libraries 
+import os
 
 # Import data processing libraries
 import pandas as pd
@@ -22,6 +23,7 @@ from xgboost_ensemble.xgboost_regression import run_xgboost_regressor
 from tab_pfn.tab_pfn_classificaiton import run_tabpfn_classifier
 from tab_pfn.tab_pfn_regression import run_tabpfn_regressor
 from lightgbm_ensemble_model.lightgbm_classification import run_lightgbm_classifier
+from catboost_ensemble.catboost_classification import run_catboost_classifier
 from grownet.grownet_classification import run_grownet_classifier
 from grownet.grownet_regressor import run_grownet_regressor
 from simple_nn.nn_classification import run_nn_classifier
@@ -41,6 +43,7 @@ from shapely.geometry import Point
 import torch
 
 # Load and process the dataset
+
 # Data processing function for hierarchical model
 def process_data_hierarchical(df):
     """Process data for hierarchical prediction"""
@@ -97,7 +100,7 @@ def process_data_hierarchical(df):
         'cities': cities
     }
 
-
+# Hierarchial split to keep track of the indices
 def hierarchical_split(X_cont, y_continent, y_city, y_coords, y_lat, y_lon, test_size=0.2, random_state=42):
     
     sss = StratifiedShuffleSplit(n_splits=1, test_size=test_size, random_state=random_state)
@@ -120,7 +123,7 @@ def hierarchical_split(X_cont, y_continent, y_city, y_coords, y_lat, y_lon, test
         'test_idx': test_idx
     }
 
-
+# Distance between two points on the earth
 def haversine_distance(lat1,lon1,lat2,lon2):
     """
     Calculate the great circle distance between two points on the earth
@@ -142,6 +145,7 @@ def haversine_distance(lat1,lon1,lat2,lon2):
 
     return R * c # in kilometers
 
+# Converting cartesian co-ordinates values to latitude and longitude
 def xyz_to_latlon(xyz_coords):
     """
     Convert the XYZ coordinates to latitude and longitude
@@ -191,7 +195,7 @@ def plot_points_on_world_map(true_lat, true_long, predicted_lat, predicted_long,
     plt.savefig(filename) # Save the plot as an image
     plt.show()
 
-
+# Train the ensemble models on classification tasks -> Continent and city classification
 def train_hierarchical_layer(
         X_train,
         X_test,
@@ -203,6 +207,7 @@ def train_hierarchical_layer(
         run_nn_classifier=None,
         run_tabpfn_classifier=None,
         run_lightgbm_classifier=None,
+        run_catboost_classifier = None,
         tune_hyperparams=False,
         apply_smote = False,
         random_state=42,
@@ -252,6 +257,11 @@ def train_hierarchical_layer(
             'name': 'LightGBM',
             'function':run_lightgbm_classifier,
             'enabled':run_lightgbm_classifier is not None
+        },
+        'catboost': {
+            'name': 'CatBoost',
+            'function':run_catboost_classifier,
+            'enabled':run_catboost_classifier is not None
         }
     }
     
@@ -305,6 +315,12 @@ def train_hierarchical_layer(
                         tune_hyperparams=True,n_trials=50, max_time=1800
                     )
                 
+                elif model_key == 'catboost':
+                    result = config['function'](
+                        X_train_hyper, y_train_hyper, X_test_hyper, y_test_hyper,
+                        tune_hyperparams=True,n_trials=50, max_time=1800
+                    )
+                
                 best_params[model_key] = result['params']
                 print(f"Best {config['name']} params: {best_params[model_key]}")
                 
@@ -346,18 +362,9 @@ def train_hierarchical_layer(
             print(f"Running {config['name']} model on Fold {fold+1}/{n_splits}")
             
             try:
-                if model_key == 'tabpfn':
-                    # TabPFN has different signature
-                    fold_result = config['function'](
+                fold_result = config['function'](
                         X_fold_train_balanced, y_fold_train_balanced, X_fold_val, y_fold_val,
-                        tune_hyperparams=False, params=best_params[model_key]
-                    )
-                else:
-                    # Other models have consistent signature
-                    fold_result = config['function'](
-                        X_fold_train_balanced, y_fold_train_balanced, X_fold_val, y_fold_val,
-                        tune_hyperparams=False, params=best_params[model_key]
-                    )
+                        tune_hyperparams=False, params=best_params[model_key])
                 
                 # Store the out-of-fold predictions
                 oof_probs[model_key][val_idx] = fold_result['predicted_probabilities']
@@ -383,19 +390,11 @@ def train_hierarchical_layer(
         print(f"Training final {config['name']} model...")
         
         try:
-            if model_key == 'tabpfn':
-                # TabPFN has different signature
-                result = config['function'](
-                    X_train, y_train, X_test, y_test,
+            result = config['function'](
+                    X_train, y_train, X_test, y_test, # Passing the original X_train,y_train, X_test and y_test to make predictions.
                     params=best_params[model_key]
                 )
-            else:
-                # Other models have consistent signature
-                result = config['function'](
-                    X_train, y_train, X_test, y_test,
-                    params=best_params[model_key]
-                )
-            
+           
             test_results[model_key] = result['predicted_probabilities']
             
         except Exception as e:
@@ -433,6 +432,7 @@ def train_hierarchical_layer(
 
     return meta_model, meta_X_train, meta_X_test, train_preds, test_preds
 
+# Train the ensemble models on regression tasks -> Co-ordinates predictions
 def train_hierarchical_coordinate_layer(
         X_train, X_test, y_train_lat, y_train_lon,
         y_test_lat, y_test_lon, y_train_coords,
@@ -776,7 +776,7 @@ y_test_coords = split_data['y_coords_test']
 
 
 # Continent layer
-continent_model, meta_X_train_cont, meta_X_test_cont, train_preds, test_preds = train_hierarchical_layer(
+continent_model, meta_X_train_cont, meta_X_test_cont, cont_train_preds, cont_test_preds = train_hierarchical_layer(
     X_train=X_train_cont,
     X_test=X_test_cont,
     y_train=y_train_cont,
@@ -786,23 +786,18 @@ continent_model, meta_X_train_cont, meta_X_test_cont, train_preds, test_preds = 
     run_grownet_classifier=None,
     run_nn_classifier=None,
     run_tabpfn_classifier=run_tabpfn_classifier,
-    run_lightgbm_classifier=run_lightgbm_classifier,
+    run_lightgbm_classifier=None,
+    run_catboost_classifier=None,
     tune_hyperparams=False,
     apply_smote=True,n_splits=5
 )
-print("Continent Prediction - Train Set:")
-print(classification_report(y_train_cont, train_preds, target_names=processed_data['continents']))
-
-print("\nContinent Prediction - Test Set:")
-print(classification_report(y_test_cont, test_preds,target_names=processed_data['continents']))
 
 
 # City layer 
-
 X_train_city = np.hstack([X_train_cont,meta_X_train_cont])
 X_test_city = np.hstack([X_test_cont,meta_X_test_cont])
 
-city_model, meta_X_train_city, meta_X_test_city, train_preds, test_preds = train_hierarchical_layer(
+city_model, meta_X_train_city, meta_X_test_city, city_train_preds, city_test_preds = train_hierarchical_layer(
     X_train=X_train_city,
     X_test=X_test_city,
     y_train=y_train_city,
@@ -810,17 +805,12 @@ city_model, meta_X_train_city, meta_X_test_city, train_preds, test_preds = train
     processed_data=processed_data,
     run_xgboost_classifier=run_xgboost_classifier,
     run_grownet_classifier=None,
-    run_lightgbm_classifier=run_lightgbm_classifier,
+    run_lightgbm_classifier=None,
+    run_catboost_classifier=None,
     run_nn_classifier=None,
     run_tabpfn_classifier=None,tune_hyperparams=False,
     apply_smote=False,n_splits=5
 )
-
-print("City Prediction - Train Set:")
-print(classification_report(y_train_city,train_preds,target_names=processed_data['cities']))
-
-print("\nCity Prediction - Test Set:")
-print(classification_report(y_test_city,test_preds))
 
 # Coordinate layer
 
@@ -837,17 +827,46 @@ coords_results = train_hierarchical_coordinate_layer(
     y_train_coords=y_train_coords,
     y_test_coords=y_test_coords,
     coord_scaler=processed_data['encoders']['coord'],
-    run_xgboost_regressor=run_xgboost_regressor,
+    run_xgboost_regressor=None,
     run_tabpfn_regressor=run_tabpfn_regressor,
     run_nn_regressor=None,
     run_grownet_regressor=None,
     tune_hyperparams=False,n_splits=5
 )
 
+
+# All metrics
+save_dir = "saved_results/"
+os.makedirs(save_dir,exist_ok=True)
+# Continent Layer
+print("Continent Prediction - Train Set:")
+print(classification_report(y_train_cont, cont_train_preds, target_names=processed_data['continents']))
+
+print("\nContinent Prediction - Test Set:")
+print(classification_report(y_test_cont, cont_test_preds,target_names=processed_data['continents']))
+# Save the test predictions
+np.save(os.path.join(save_dir, "y_test_cont.npy"),y_test_cont)
+np.save(os.path.join(save_dir, "y_pred_cont.npy"),cont_test_preds)
+
+# City Layer
+print("City Prediction - Train Set:")
+print(classification_report(y_train_city,city_train_preds,target_names=processed_data['cities']))
+
+print("\nCity Prediction - Test Set:")
+print(classification_report(y_test_city,city_test_preds))
+# Save the test predictions
+np.save(os.path.join(save_dir,"y_test_city.npy"),y_test_city)
+np.save(os.path.join(save_dir,"y_pred_city.npy"),city_test_preds)
+
+
+# Co-ordinate Layer
 print("Coordinate prediction results:")
 print(f"Test Median Distance: {coords_results['test_metrics']['median_distance']:.2f} km")
 print(f"Test Mean Distance: {coords_results['test_metrics']['mean_distance']:.2f} km")
 print(f"Test 95th Percentile: {coords_results['test_metrics']['percentile_95']:.2f} km")
+# Save the test predictions
+np.save(os.path.join(save_dir,"y_test_coord.npy"),np.stack([y_test_lat,y_test_lon],axis=1).astype(np.float32))
+np.save(os.path.join(save_dir,"y_pred_coord.npy"),coords_results['test_preds'])
 
 
 plot_points_on_world_map(true_lat = y_test_lat,
