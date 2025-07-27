@@ -42,6 +42,12 @@ from shapely.geometry import Point
 # Import deep learning libraries
 import torch
 
+# Logging
+import logging
+
+# Initialize logging
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+
 # Load and process the dataset
 
 # Data processing function for hierarchical model
@@ -201,7 +207,6 @@ def train_hierarchical_layer(
         X_test,
         y_train,
         y_test,
-        processed_data,
         run_xgboost_classifier=None,
         run_grownet_classifier=None,
         run_nn_classifier=None,
@@ -211,7 +216,8 @@ def train_hierarchical_layer(
         tune_hyperparams=False,
         apply_smote = False,
         random_state=42,
-        n_splits=3
+        n_splits=3,
+        accuracy_threshold=0.8
 ):
     """
     Dynamic hierarchical layer that can skip models if they are passed as None.
@@ -271,7 +277,7 @@ def train_hierarchical_layer(
     if not enabled_models:
         raise ValueError("At least one model function must be provided (not None)")
     
-    print(f"Enabled models: {list(enabled_models.keys())}")
+    logging.info(f"Enabled models: {list(enabled_models.keys())}")
     
     # Split the same dataset to tune the hyperparameters for the model but with different random state
     X_train_hyper, X_test_hyper, y_train_hyper, y_test_hyper = train_test_split(
@@ -282,10 +288,10 @@ def train_hierarchical_layer(
     best_params = {}
     
     if tune_hyperparams:
-        print("Tuning hyperparameters for the enabled models")
+        logging.info("Tuning hyperparameters for the enabled models")
         
         for model_key, config in enabled_models.items():
-            print(f"Tuning {config['name']} hyperparameters...")
+            logging.info(f"Tuning {config['name']} hyperparameters...")
             
             try:
                 if model_key == 'xgb':
@@ -322,10 +328,10 @@ def train_hierarchical_layer(
                     )
                 
                 best_params[model_key] = result['params']
-                print(f"Best {config['name']} params: {best_params[model_key]}")
+                logging.info(f"Best {config['name']} params: {best_params[model_key]}")
                 
             except Exception as e:
-                print(f"Error tuning {config['name']}: {e}")
+                logging.error(f"Error tuning {config['name']}: {e}")
                 best_params[model_key] = None
     else:
         # Initialize all as None
@@ -341,17 +347,20 @@ def train_hierarchical_layer(
     for model_key in enabled_models.keys():
         oof_probs[model_key] = np.zeros((n_train_samples, n_classes))
 
+    # Track validation accuracies per model across folds
+    model_val_accuracies = {model_key: [] for model_key in enabled_models.keys()}
+
     # Cross-validation loop
     for fold, (train_idx, val_idx) in enumerate(skf.split(X_train, y_train)):
         
-        print(f"\nFold {fold+1}/{n_splits}")
+        logging.info(f"\nFold {fold+1}/{n_splits}")
 
         # Split data for this fold
         X_fold_train, X_fold_val = X_train[train_idx], X_train[val_idx]
         y_fold_train, y_fold_val = y_train[train_idx], y_train[val_idx]
         
         if apply_smote:
-            print("Applying SMOTE to balance the datset.")
+            logging.info("Applying SMOTE to balance the dataset.")
             X_fold_train_balanced, y_fold_train_balanced = SMOTE(random_state=42).fit_resample(X_fold_train,y_fold_train)
 
         else:
@@ -359,7 +368,7 @@ def train_hierarchical_layer(
 
         # Train each enabled model
         for model_key, config in enabled_models.items():
-            print(f"Running {config['name']} model on Fold {fold+1}/{n_splits}")
+            logging.info(f"Running {config['name']} model on Fold {fold+1}/{n_splits}")
             
             try:
                 fold_result = config['function'](
@@ -370,7 +379,7 @@ def train_hierarchical_layer(
                 oof_probs[model_key][val_idx] = fold_result['predicted_probabilities']
                 
             except Exception as e:
-                print(f"Error running {config['name']} on fold {fold+1}: {e}")
+                logging.error(f"Error running {config['name']} on fold {fold+1}: {e}")
                 # Fill with uniform probabilities as fallback
                 oof_probs[model_key][val_idx] = np.full((len(val_idx), n_classes), 1.0/n_classes)
 
@@ -380,14 +389,14 @@ def train_hierarchical_layer(
         meta_feature_list.append(oof_probs[model_key])
     
     meta_X_train = np.hstack(meta_feature_list)
-    print(f"Meta training features shape: {meta_X_train.shape}")
+    logging.info(f"Meta training features shape: {meta_X_train.shape}")
 
     # Train final models on the full training data
-    print("\nTraining final models on the full training data")
+    logging.info("\nTraining final models on the full training data")
     test_results = {}
     
     for model_key, config in enabled_models.items():
-        print(f"Training final {config['name']} model...")
+        logging.info(f"Training final {config['name']} model...")
         
         try:
             result = config['function'](
@@ -398,7 +407,7 @@ def train_hierarchical_layer(
             test_results[model_key] = result['predicted_probabilities']
             
         except Exception as e:
-            print(f"Error training final {config['name']} model: {e}")
+            logging.error(f"Error training final {config['name']} model: {e}")
             # Fill with uniform probabilities as fallback
             test_results[model_key] = np.full((X_test.shape[0], n_classes), 1.0/n_classes)
 
@@ -412,10 +421,10 @@ def train_hierarchical_layer(
         meta_test_feature_list.append(probs)
     
     meta_X_test = np.hstack(meta_test_feature_list)
-    print(f"Meta test features shape: {meta_X_test.shape}")
+    logging.info(f"Meta test features shape: {meta_X_test.shape}")
 
     # Train meta model
-    print("\nTraining meta model...")
+    logging.info("\nTraining meta model...")
     meta_model = xgb.XGBClassifier(objective='multi:softprob', random_state=random_state)
     meta_model.fit(meta_X_train, y_train)
 
@@ -424,11 +433,11 @@ def train_hierarchical_layer(
     test_preds = meta_model.predict(meta_X_test)
 
     # Print summary
-    print(f"\nSummary:")
-    print(f"- Used models: {list(enabled_models.keys())}")
-    print(f"- Meta features: {meta_X_train.shape[1]}")
-    print(f"- Meta model train accuracy: {accuracy_score(y_train, train_preds):.4f}")
-    print(f"- Meta model test accuracy: {accuracy_score(y_test, test_preds):.4f}")
+    logging.info(f"\nSummary:")
+    logging.info(f"- Used models: {list(enabled_models.keys())}")
+    logging.info(f"- Meta features: {meta_X_train.shape[1]}")
+    logging.info(f"- Meta model train accuracy: {accuracy_score(y_train, train_preds):.4f}")
+    logging.info(f"- Meta model test accuracy: {accuracy_score(y_test, test_preds):.4f}")
 
     return meta_model, meta_X_train, meta_X_test, train_preds, test_preds
 
@@ -467,7 +476,7 @@ def train_hierarchical_coordinate_layer(
             'name':'Neural Network',
             'function': run_nn_regressor,
             'enabled':run_nn_regressor is not None,
-            'prediction_type':'xyz' # Neural Network predictions xyz coordinates
+            'prediction_type':'xyz' # Neural Network predicts xyz coordinates
         },
         'tabpfn':{
             'name':'Tab PFN',
@@ -483,7 +492,7 @@ def train_hierarchical_coordinate_layer(
     if not enabled_models:
         raise ValueError("At least one model function must be provided (not None)")
     
-    print(f"Enabled models: {list(enabled_models.keys())}")
+    logging.info(f"Enabled models: {list(enabled_models.keys())}")
 
     # Split the same data set to tune the hyperparameters for the mode byt with different random state
     X_train_hyper, X_test_hyper, y_train_hyper_lat, y_test_hyper_lat = train_test_split(
@@ -500,10 +509,10 @@ def train_hierarchical_coordinate_layer(
     best_params = {}
     
     if tune_hyperparams:
-        print("Tuning hyperparameters for the enabled models")
+        logging.info("Tuning hyperparameters for the enabled models")
         
         for model_key, config in enabled_models.items():
-            print(f"Tuning {config['name']} hyperparameters...")
+            logging.info(f"Tuning {config['name']} hyperparameters...")
             
             # Write the tuning function here, Keep this empty now as I have not added tuning to the other scripts.
     else:
@@ -514,7 +523,7 @@ def train_hierarchical_coordinate_layer(
     kf = KFold(n_splits=n_splits,shuffle=True,random_state=random_state)
     n_train_samples = X_train.shape[0]
 
-    # Only create oof arrays for enalbedl models (each model predictions lat and lon)
+    # Only create oof arrays for enabled models (each model predictions lat and lon)
     oof_predictions = {}
     for model_key in enabled_models.keys():
         oof_predictions[model_key] = np.zeros((n_train_samples,2)) # One for lat and one for long
@@ -522,7 +531,7 @@ def train_hierarchical_coordinate_layer(
     # Cross validation loop
     for fold, (train_idx, val_idx) in enumerate(kf.split(X_train)):
 
-        print(f"\nFold {fold+1}/{n_splits}")
+        logging.info(f"\nFold {fold+1}/{n_splits}")
 
         # SPlit data for this fold
         X_fold_train, X_fold_val = X_train[train_idx], X_train[val_idx]
@@ -532,7 +541,7 @@ def train_hierarchical_coordinate_layer(
 
         # Train each enabled model
         for model_key, config in enabled_models.items():
-            print(f"Running {config['name']} model on Fold {fold+1}/{n_splits}")
+            logging.info(f"Running {config['name']} model on Fold {fold+1}/{n_splits}")
 
             try:
                 if model_key == "xgb":
@@ -559,7 +568,7 @@ def train_hierarchical_coordinate_layer(
                     oof_predictions[model_key][val_idx,0] = lat_pred_val
                     oof_predictions[model_key][val_idx,1] = lon_pred_val
 
-                elif model_key in ['grownet','nn']:
+                elif model_key in ['grownet','nn','tabpfn']:
                     # XYZ predictions models
                     fold_result = config['function'](
                         X_fold_train,y_fold_train_coords,X_fold_val,y_fold_val_coords,
@@ -574,22 +583,8 @@ def train_hierarchical_coordinate_layer(
                     # Store predictions
                     oof_predictions[model_key][val_idx] = latlon_pred
                 
-                elif model_key == 'tabpfn':
-                    # TabPFN xyz predictions
-                    fold_result = config['function'](
-                        X_fold_train,y_fold_train_coords,X_fold_val,y_fold_val_coords,
-                        tune_hyperparams=False, params = best_params[model_key]
-                    )
-
-                    # Convert XYZ to lat/lon
-                    xyz_pred = fold_result['predictions']
-                    xyz_rescaled = coord_scaler.inverse_transform(xyz_pred)
-                    latlon_pred = xyz_to_latlon(xyz_rescaled)
-
-                    # Store predictions
-                    oof_predictions[model_key][val_idx] = latlon_pred
             except Exception as e:
-                print(f"Error running {config['name']} on fold {fold+1}: {e}")
+                logging.error(f"Error running {config['name']} on fold {fold+1}: {e}")
                 # Fill with uniform probabilities as fallback
                 exit()
 
@@ -599,14 +594,14 @@ def train_hierarchical_coordinate_layer(
         meta_features_list.append(oof_predictions[model_key])
 
     meta_X_train = np.hstack(meta_features_list)
-    print(f"Meta training feature shape :{meta_X_train.shape}")
+    logging.info(f"Meta training feature shape :{meta_X_train.shape}")
 
     # Train final models on the full training data
-    print("\nTraining final models on the full training data")
+    logging.info("\nTraining final models on the full training data")
     test_results = {}
     
     for model_key, config in enabled_models.items():
-        print(f"Training final {config['name']} model...")
+        logging.info(f"Training final {config['name']} model...")
         
         try:
             if model_key == 'xgb':
@@ -630,7 +625,7 @@ def train_hierarchical_coordinate_layer(
                 
                 test_results[model_key] = np.stack([lat_pred_test, lon_pred_test], axis=1)
                 
-            elif model_key in ['grownet', 'nn']:
+            elif model_key in ['grownet', 'nn', 'tabpfn']:
                 # XYZ prediction models
                 result = config['function'](
                     X_train, y_train_coords, X_test, y_test_coords,
@@ -643,20 +638,8 @@ def train_hierarchical_coordinate_layer(
                 
                 test_results[model_key] = latlon_pred
                 
-            elif model_key == 'tabpfn':
-                # XYZ prediction models
-                result = config['function'](
-                    X_train, y_train_coords, X_test, y_test_coords,
-                    params=best_params[model_key]
-                )
-                
-                xyz_pred = result['predictions']
-                xyz_rescaled = coord_scaler.inverse_transform(xyz_pred)
-                latlon_pred = xyz_to_latlon(xyz_rescaled)
-                
-                test_results[model_key] = latlon_pred
         except Exception as e:
-            print(f"Error training final {config['name']} model : {e}")
+            logging.error(f"Error training final {config['name']} model : {e}")
             exit()
 
     # Create meta test features
@@ -666,10 +649,10 @@ def train_hierarchical_coordinate_layer(
         meta_test_feature_list.append(preds)
     
     meta_X_test = np.hstack(meta_test_feature_list)
-    print(f"Meta test features shape: {meta_X_test.shape}")
+    logging.info(f"Meta test features shape: {meta_X_test.shape}")
 
     # Train meta models (separate for lat and lon)
-    print("\nTraining meta models...")
+    logging.info("\nTraining meta models...")
     
     # Prepare targets
     y_train_combined = np.stack([y_train_lat, y_train_lon], axis=1)
@@ -706,14 +689,14 @@ def train_hierarchical_coordinate_layer(
     test_metrics = calculate_distance_metrics(y_test_combined, test_preds)
 
     # Print summary
-    print(f"\nSummary:")
-    print(f"- Used models: {list(enabled_models.keys())}")
-    print(f"- Meta features: {meta_X_train.shape[1]}")
-    print(f"- Meta model train median distance: {train_metrics['median_distance']:.2f} km")
-    print(f"- Meta model test median distance: {test_metrics['median_distance']:.2f} km")
-    print(f"- Meta model train mean distance: {train_metrics['mean_distance']:.2f} km")
-    print(f"- Meta model test mean distance: {test_metrics['mean_distance']:.2f} km")
-    print(f"- Meta model test 95th percentile: {test_metrics['percentile_95']:.2f} km")
+    logging.info(f"\nSummary:")
+    logging.info(f"- Used models: {list(enabled_models.keys())}")
+    logging.info(f"- Meta features: {meta_X_train.shape[1]}")
+    logging.info(f"- Meta model train median distance: {train_metrics['median_distance']:.2f} km")
+    logging.info(f"- Meta model test median distance: {test_metrics['median_distance']:.2f} km")
+    logging.info(f"- Meta model train mean distance: {train_metrics['mean_distance']:.2f} km")
+    logging.info(f"- Meta model test mean distance: {test_metrics['mean_distance']:.2f} km")
+    logging.info(f"- Meta model test 95th percentile: {test_metrics['percentile_95']:.2f} km")
 
     return {
         'meta_lat_model': meta_lat_model,
@@ -751,29 +734,17 @@ split_data = hierarchical_split(
 
 # Training data for continent
 # Original feautres
-X_train_cont = split_data['X_train']
-X_test_cont = split_data['X_test']
-
+X_train_cont, X_test_cont = split_data['X_train'], split_data['X_test']
 # Train and test for continent
-y_train_cont = split_data['y_cont_train']
-y_test_cont = split_data['y_cont_test']
-
+y_train_cont, y_test_cont = split_data['y_cont_train'], split_data['y_cont_test']
 # Train and test for cities
-y_train_city = split_data['y_city_train']
-y_test_city = split_data['y_city_test']
-
+y_train_city, y_test_city = split_data['y_city_train'], split_data['y_city_test']
 # Train and test for latitude
-y_train_lat = split_data['y_lat_train']
-y_test_lat = split_data['y_lat_test']
-
+y_train_lat, y_test_lat = split_data['y_lat_train'], split_data['y_lat_test']
 # Train and test for longitude
-y_train_lon = split_data['y_lon_train']
-y_test_lon = split_data['y_lon_test']
-
+y_train_lon, y_test_lon = split_data['y_lon_train'], split_data['y_lon_test']
 # Train and test for co-ordinates
-y_train_coords = split_data['y_coords_train']
-y_test_coords = split_data['y_coords_test']
-
+y_train_coords, y_test_coords = split_data['y_coords_train'],  split_data['y_coords_test']
 
 # Continent layer
 continent_model, meta_X_train_cont, meta_X_test_cont, cont_train_preds, cont_test_preds = train_hierarchical_layer(
@@ -781,7 +752,6 @@ continent_model, meta_X_train_cont, meta_X_test_cont, cont_train_preds, cont_tes
     X_test=X_test_cont,
     y_train=y_train_cont,
     y_test=y_test_cont,
-    processed_data=processed_data,
     run_xgboost_classifier=run_xgboost_classifier,
     run_grownet_classifier=None,
     run_nn_classifier=None,
@@ -792,7 +762,6 @@ continent_model, meta_X_train_cont, meta_X_test_cont, cont_train_preds, cont_tes
     apply_smote=True,n_splits=5
 )
 
-
 # City layer 
 X_train_city = np.hstack([X_train_cont,meta_X_train_cont])
 X_test_city = np.hstack([X_test_cont,meta_X_test_cont])
@@ -802,7 +771,6 @@ city_model, meta_X_train_city, meta_X_test_city, city_train_preds, city_test_pre
     X_test=X_test_city,
     y_train=y_train_city,
     y_test=y_test_city,
-    processed_data=processed_data,
     run_xgboost_classifier=run_xgboost_classifier,
     run_grownet_classifier=None,
     run_lightgbm_classifier=None,
@@ -816,6 +784,7 @@ city_model, meta_X_train_city, meta_X_test_city, city_train_preds, city_test_pre
 
 X_train_coord = np.hstack([X_train_city,meta_X_train_city])
 X_test_coord = np.hstack([X_test_city,meta_X_test_city])
+
 
 coords_results = train_hierarchical_coordinate_layer(
     X_train=X_train_coord,
@@ -839,36 +808,180 @@ coords_results = train_hierarchical_coordinate_layer(
 save_dir = "saved_results/"
 os.makedirs(save_dir,exist_ok=True)
 # Continent Layer
-print("Continent Prediction - Train Set:")
-print(classification_report(y_train_cont, cont_train_preds, target_names=processed_data['continents']))
+#print("Continent Prediction - Train Set:")
+#print(classification_report(y_train_cont, cont_train_preds, target_names=processed_data['continents']))
 
-print("\nContinent Prediction - Test Set:")
-print(classification_report(y_test_cont, cont_test_preds,target_names=processed_data['continents']))
+logging.info("\nContinent Prediction - Test Set:")
+logging.info(classification_report(y_test_cont, cont_test_preds,target_names=processed_data['continents']))
 # Save the test predictions
 np.save(os.path.join(save_dir, "y_test_cont.npy"),y_test_cont)
 np.save(os.path.join(save_dir, "y_pred_cont.npy"),cont_test_preds)
 
 # City Layer
-print("City Prediction - Train Set:")
-print(classification_report(y_train_city,city_train_preds,target_names=processed_data['cities']))
+#print("City Prediction - Train Set:")
+#print(classification_report(y_train_city,city_train_preds,target_names=processed_data['cities']))
 
-print("\nCity Prediction - Test Set:")
-print(classification_report(y_test_city,city_test_preds))
+logging.info("\nCity Prediction - Test Set:")
+logging.info(classification_report(y_test_city,city_test_preds))
 # Save the test predictions
 np.save(os.path.join(save_dir,"y_test_city.npy"),y_test_city)
 np.save(os.path.join(save_dir,"y_pred_city.npy"),city_test_preds)
 
-
 # Co-ordinate Layer
-print("Coordinate prediction results:")
-print(f"Test Median Distance: {coords_results['test_metrics']['median_distance']:.2f} km")
-print(f"Test Mean Distance: {coords_results['test_metrics']['mean_distance']:.2f} km")
-print(f"Test 95th Percentile: {coords_results['test_metrics']['percentile_95']:.2f} km")
+logging.info("Coordinate prediction results:")
+logging.info(f"Test Median Distance: {coords_results['test_metrics']['median_distance']:.2f} km")
+logging.info(f"Test Mean Distance: {coords_results['test_metrics']['mean_distance']:.2f} km")
+logging.info(f"Test 95th Percentile: {coords_results['test_metrics']['percentile_95']:.2f} km")
+
 # Save the test predictions
 np.save(os.path.join(save_dir,"y_test_coord.npy"),np.stack([y_test_lat,y_test_lon],axis=1).astype(np.float32))
 np.save(os.path.join(save_dir,"y_pred_coord.npy"),coords_results['test_preds'])
 
 
+# Error calculations
+def error_calc(test_conts,pred_conts,test_city,pred_city,test_lat,pred_lat,test_lon,pred_lon):
+    error_df = pd.DataFrame({
+        'true_cont': test_conts,
+        'pred_cont': pred_conts,
+        'true_city': test_city,
+        'pred_city': pred_city,
+        'true_lat': test_lat,
+        'true_lon': pred_lat,
+        'pred_lat': test_lon,
+        'pred_lon': pred_lon
+    })
+
+
+    # Assign true contient and city names
+    error_df['true_cont_name'] = error_df['true_cont'].map(lambda i: processed_data['continents'][i])
+    error_df['pred_cont_name'] = error_df['pred_cont'].map(lambda i: processed_data['continents'][i])
+
+    error_df['true_city_name'] = error_df['true_city'].map(lambda i: processed_data['cities'][i])
+    error_df['pred_city_name'] = error_df['pred_city'].map(lambda i: processed_data['cities'][i])
+
+    cont_support_map = dict(zip(np.unique(error_df['true_cont_name'],return_counts=True)[0],np.unique(error_df['true_cont_name'],return_counts=True)[1]))
+    city_support_map = dict(zip(np.unique(error_df['true_city_name'],return_counts=True)[0],np.unique(error_df['true_city_name'],return_counts=True)[1]))
+
+    # Step 1: Compute the correctness
+    error_df['continent_correct'] = error_df['true_cont'] == error_df['pred_cont']
+    error_df['city_correct'] = error_df['true_city'] == error_df['pred_city']
+
+    # Step 2: Calculate the haversine distance
+    error_df['coord_error'] = haversine_distance(error_df['true_lat'],error_df['true_lon'],error_df['pred_lat'],error_df['pred_lon'])
+
+    # Step 3: Group into 4 categories
+    def group_label(row):
+        if row['continent_correct'] and row['city_correct']:
+            return 'C_correct Z_correct'
+        elif row['continent_correct'] and not row['city_correct']:
+            return 'C_correct Z_wrong'
+        elif not row['continent_correct'] and row['city_correct']:
+            return 'C_wrong Z_correct'
+        else:
+            return 'C_wrong Z_wrong'
+        
+    # Create the error group column
+    error_df['error_group'] = error_df.apply(group_label, axis=1)
+
+    # Now we proceed with grouping
+    group_stats = error_df.groupby('error_group')['coord_error'].agg([
+        ('count','count'),
+        ('mean_error_km','mean'),
+        ('median_error_km','median')
+    ])
+
+    # Step 5: Calculate proportion and expected error.
+    """
+    P(C=C*) : Probability of contient predicting correct continent
+    P(Z=Z*) : Probability of ciry predicting correct city
+    E(D|condition) : Expected distance error under that condition
+
+    E(D) = P(C=C*,Z=Z*)*E(D|C=C*,Z=Z*)+ -> ideal condition continent is correct and city is also correct
+            P(C=C*,Z!=Z*)*E(D|C=C*,Z!=Z*)+ -> continent is correct and city is wrong
+            P(C!=C*,Z=Z*)*E(D|C!=C*,Z=Z*)+ -> city is correct but continent is wrong
+            P(C!=C*,Z!=Z*)*E(D|C!=C*,Z!=Z*) -> both cotinent and city are wrong
+    """
+    total = len(error_df)
+    group_stats['proportion'] = group_stats['count'] / total
+    group_stats['weighted_error'] = group_stats['mean_error_km'] * group_stats['proportion']
+    expected_total_error = group_stats['weighted_error'].sum()
+    logging.info(group_stats)
+    logging.info(f"Expected Coordinate Error E[D]: {expected_total_error:.2f} km")
+
+    def compute_in_radius_metrics(y_true, y_pred, thresholds=None):
+        """
+        Compute % of predictions within given distance thresholds
+        y_true, y_pred: numpy arrays of shape (N, 2) for [lat, lon]
+        thresholds: List of distance thresholds in kilometers (default: [1, 5, 50, 100, 250, 500, 1000, 5000])
+        """
+        if thresholds is None:
+            thresholds = [1, 5, 50, 100, 250, 500, 1000, 5000]
+
+        distances = haversine_distance(
+            y_true[:, 0], y_true[:, 1], y_pred[:, 0], y_pred[:, 1]
+        )
+
+        results = {}
+        for r in thresholds:
+            percent = np.mean(distances <= r) * 100
+            results[f"<{r} km"] = percent
+
+        return results
+
+    metrics = compute_in_radius_metrics(y_true=np.stack([test_lat,test_lon],axis=1), y_pred=np.stack([pred_lat,pred_lon],axis=1))
+
+    logging.info("In-Radius Accuracy Metrics:")
+    for k, v in metrics.items():
+        logging.info(f"{k:>8}: {v:.2f}%")
+        
+    def in_radius_by_group(df, group_col, thresholds=[1, 5, 50, 100, 250, 500, 1000, 5000]):
+        """
+        Compute in-radius accuracy for a group column (continent, city, or continent+city)
+        """
+        df = df.copy()
+        df['coord_error'] = haversine_distance(
+            df['true_lat'].values, df['true_lon'].values,
+            df['pred_lat'].values, df['pred_lon'].values
+        )
+
+        results = {}
+        grouped = df.groupby(group_col)
+
+        for group_name, group_df in grouped:
+            res = {}
+            errors = group_df['coord_error'].values
+            for r in thresholds:
+                res[f"<{r} km"] = np.mean(errors <= r) * 100  # in %
+            results[group_name] = res
+
+        return pd.DataFrame(results).T  # Transpose for better readability
+    
+    continent_metrics = in_radius_by_group(error_df, group_col='true_cont_name')
+    logging.info("In-Radius Accuracy per Continent")
+    continent_metrics['continent_support'] = continent_metrics.index.map(cont_support_map)
+    logging.info(continent_metrics.round(2))
+
+    city_metrics = in_radius_by_group(error_df, group_col='true_city_name')
+    logging.info("In-Radius Accuracy per City")
+    city_metrics['city_support'] = city_metrics.index.map(city_support_map)
+    logging.info(city_metrics.round(2))
+
+    error_df['continent_city'] = error_df['true_cont_name'] + " / " + error_df['true_city_name']
+    cont_city_metrics = in_radius_by_group(error_df, group_col='continent_city')
+    cont_city_metrics['continent_support'] = cont_city_metrics.index.map(lambda x :x.split("/")[-1].strip()).map(city_support_map)
+    logging.info("In-Radius Accuracy per Continent-City")
+    logging.info(cont_city_metrics.round(2))
+
+
+# Error calculations for all the predictions
+logging.info("Starting error calculations...")
+error_calc(test_conts=y_test_cont,pred_conts=cont_test_preds,
+           test_city=y_test_city,pred_city = city_test_preds,
+           test_lat=y_test_lat,pred_lat=coords_results['test_preds'][:,0],
+           test_lon=y_test_lon,pred_lon=coords_results['test_preds'][:,1])
+
+# Plot the points on the world map
+logging.info("Plotting points on world map...")
 plot_points_on_world_map(true_lat = y_test_lat,
                          true_long=y_test_lon,
                          predicted_lat=coords_results['test_preds'][:,0],
