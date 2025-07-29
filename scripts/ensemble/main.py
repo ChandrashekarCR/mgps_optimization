@@ -217,12 +217,11 @@ def train_hierarchical_layer(
         apply_smote = False,
         random_state=42,
         n_splits=3,
-        accuracy_threshold=0.8
-):
+        accuracy_threshold=0.8):
     """
     Dynamic hierarchical layer that can skip models if they are passed as None.
     
-    Args:
+       Args:
         X_train, X_test, y_train, y_test: Training and test data
         processed_data: Processed data (for reference)
         run_xgboost_classifier: XGBoost classifier function or None to skip
@@ -441,6 +440,7 @@ def train_hierarchical_layer(
 
     return meta_model, meta_X_train, meta_X_test, train_preds, test_preds
 
+
 # Train the ensemble models on regression tasks -> Co-ordinates predictions
 def train_hierarchical_coordinate_layer(
         X_train, X_test, y_train_lat, y_train_lon,
@@ -452,8 +452,7 @@ def train_hierarchical_coordinate_layer(
         run_tabpfn_regressor = None,
         tune_hyperparams = False,
         random_state = 42,
-        n_splits = 3
-):
+        n_splits = 3):
     """
     Dynamic hierarchical coordinate prediction laer similar to the classification version.
     """
@@ -732,7 +731,6 @@ split_data = hierarchical_split(
     processed_data['y_longitude']
 )
 
-# Training data for continent
 # Original feautres
 X_train_cont, X_test_cont = split_data['X_train'], split_data['X_test']
 # Train and test for continent
@@ -756,7 +754,7 @@ continent_model, meta_X_train_cont, meta_X_test_cont, cont_train_preds, cont_tes
     run_grownet_classifier=None,
     run_nn_classifier=None,
     run_tabpfn_classifier=run_tabpfn_classifier,
-    run_lightgbm_classifier=None,
+    run_lightgbm_classifier=False,
     run_catboost_classifier=None,
     tune_hyperparams=False,
     apply_smote=True,n_splits=5
@@ -773,8 +771,8 @@ city_model, meta_X_train_city, meta_X_test_city, city_train_preds, city_test_pre
     y_test=y_test_city,
     run_xgboost_classifier=run_xgboost_classifier,
     run_grownet_classifier=None,
-    run_lightgbm_classifier=None,
-    run_catboost_classifier=None,
+    run_lightgbm_classifier=False,
+    run_catboost_classifier=False,
     run_nn_classifier=None,
     run_tabpfn_classifier=None,tune_hyperparams=False,
     apply_smote=False,n_splits=5
@@ -814,6 +812,7 @@ os.makedirs(save_dir,exist_ok=True)
 logging.info("\nContinent Prediction - Test Set:")
 logging.info(classification_report(y_test_cont, cont_test_preds,target_names=processed_data['continents']))
 # Save the test predictions
+np.save(os.path.join(save_dir, "x_test.npy"), X_test_cont)
 np.save(os.path.join(save_dir, "y_test_cont.npy"),y_test_cont)
 np.save(os.path.join(save_dir, "y_pred_cont.npy"),cont_test_preds)
 
@@ -974,11 +973,11 @@ def error_calc(test_conts,pred_conts,test_city,pred_city,test_lat,pred_lat,test_
 
 
 # Error calculations for all the predictions
-logging.info("Starting error calculations...")
-error_calc(test_conts=y_test_cont,pred_conts=cont_test_preds,
-           test_city=y_test_city,pred_city = city_test_preds,
-           test_lat=y_test_lat,pred_lat=coords_results['test_preds'][:,0],
-           test_lon=y_test_lon,pred_lon=coords_results['test_preds'][:,1])
+#logging.info("Starting error calculations...")
+#error_calc(test_conts=y_test_cont,pred_conts=cont_test_preds,
+#           test_city=y_test_city,pred_city = city_test_preds,
+#           test_lat=y_test_lat,pred_lat=coords_results['test_preds'][:,0],
+#           test_lon=y_test_lon,pred_lon=coords_results['test_preds'][:,1])
 
 # Plot the points on the world map
 logging.info("Plotting points on world map...")
