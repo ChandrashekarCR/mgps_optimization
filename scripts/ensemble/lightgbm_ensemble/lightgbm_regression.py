@@ -88,19 +88,21 @@ class LightGBMRegressorTuner:
 
 def run_lightgbm_regressor(X_train, y_train, X_test, y_test,
                           tune_hyperparams=False, random_state=42,
-                          n_trials=20, timeout=1200, params=None):
+                          n_trials=20, timeout=1200, params=None, verbose=False):
 
     tuner = LightGBMRegressorTuner(X_train, y_train, X_test, y_test,
                                   random_state=random_state, n_trials=n_trials, timeout=timeout)
 
     if tune_hyperparams:
         best_params = tuner.tune()
-        print("Using tuned parameters:", best_params)
+        if verbose:
+            print("Using tuned parameters:", best_params)
     else:
         best_params = tuner.default_params()
         if params:
             best_params.update(params)
-        print("Using default (or custom) parameters:", best_params)
+        if verbose:
+            print("Using default (or custom) parameters:", best_params)
 
     model = tuner.train(best_params)
     preds, mae, r2 = tuner.evaluate(model)

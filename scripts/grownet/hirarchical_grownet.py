@@ -6,6 +6,7 @@ import matplotlib.pyplot as plt
 import os
 import copy
 import seaborn as sns
+import optuna
 
 from sklearn import preprocessing
 from sklearn.metrics import log_loss, classification_report, confusion_matrix, accuracy_score, mean_squared_error
@@ -27,38 +28,40 @@ warnings.filterwarnings('ignore')
 
 
 # Enhanced Parameters for Hierarchical Model
-params = {
-    # === Architecture ===
-    "feat_d": 200,             # Input feature size (species abundance, etc.)
-    "hidden_size": 256,        # Hidden layer size for MLP
-    "n_continents": 7,         # Set automatically based on data
-    "n_cities": None,          # Set based on city_target shape
-    "coord_dim": 3,            # x, y, z coordinates
+def default_params():
+    return {
+        # === Architecture ===
+        "feat_d": 200,             # Input feature size (species abundance, etc.)
+        "hidden_size": 256,        # Hidden layer size for MLP
+        "n_continents": 7,         # Set automatically based on data
+        "n_cities": None,          # Set based on city_target shape
+        "coord_dim": 3,            # x, y, z coordinates
 
-    # === GrowNet boosting ===
-    "num_nets": 30,            # Number of weak learners to add
-    "boost_rate": 0.4,         # Boosting rate (learnable in net_ensemble)
+        # === GrowNet boosting ===
+        "num_nets": 30,            # Number of weak learners to add
+        "boost_rate": 0.4,         # Boosting rate (learnable in net_ensemble)
 
-    # === Training parameters ===
-    "lr": 1e-3,                # Base learning rate for weak learners
-    "uncertainty_lr": 1e-4,    # Learning rate for log_sigma uncertainty weights
-    "weight_decay": 1e-4,      # L2 regularization
-    "batch_size": 128,         # Mini-batch size
-    "epochs_per_stage": 20,    # Epochs per weak learner
-    "correct_epoch": 5,        # Fine-tuning epochs for uncertainty correction
-    "early_stopping_steps": 5, # Stop training if no improvement for N learners
-    "gradient_clip": 1.0,      # Gradient clipping norm
+        # === Training parameters ===
+        "lr": 1e-3,                # Base learning rate for weak learners
+        "uncertainty_lr": 1e-4,    # Learning rate for log_sigma uncertainty weights
+        "weight_decay": 1e-4,      # L2 regularization
+        "batch_size": 128,         # Mini-batch size
+        "epochs_per_stage": 20,    # Epochs per weak learner
+        "correct_epoch": 5,        # Fine-tuning epochs for uncertainty correction
+        "early_stopping_steps": 5, # Stop training if no improvement for N learners
+        "gradient_clip": 1.0,      # Gradient clipping norm
 
-    # === Coordinate loss ===
-    "use_geo_loss": False,      # Add haversine (angular) loss as regularizer
-    "geo_loss_weight": 0.1,    # Weight for haversine loss in coord loss
+        # === Coordinate loss ===
+        "use_geo_loss": False,      # Add haversine (angular) loss as regularizer
+        "geo_loss_weight": 0.1,    # Weight for haversine loss in coord loss
 
-    # === Data split ===
-    "val_split": 0.2,          # % of training data used as validation
-    "test_split": 0.2,         # % of full data used for test set
-    "random_seed": 42,         # Reproducibility
-}
+        # === Data split ===
+        "val_split": 0.2,          # % of training data used as validation
+        "test_split": 0.2,         # % of full data used for test set
+        "random_seed": 42,         # Reproducibility
+    }
 
+params = default_params()
 
 device = "cuda" if torch.cuda.is_available() else "cpu"
 print(f"Using device: {device}")
@@ -640,6 +643,55 @@ def train_hierarchical_grownet(x_data, continent_targets, city_targets, coord_ta
     
     return net_ensemble, test_metrics
 
+# --- Hyperparameter Tuning Class for Hierarchical GrowNet ---
+class HierarchicalGrowNetTuner:
+    def __init__(self, X_train, continent_targets, city_targets, coord_targets, params, device="cpu", n_trials=20, timeout=1200):
+        self.X_train = X_train
+        self.continent_targets = continent_targets
+        self.city_targets = city_targets
+        self.coord_targets = coord_targets
+        self.params = params
+        self.device = device
+        self.n_trials = n_trials
+        self.timeout = timeout
+        self.best_params = None
+        self.best_score = None
+
+    def objective(self, trial):
+        params = self.params.copy()
+        params.update({
+            "hidden_size": trial.suggest_categorical("hidden_size", [128, 256, 512]),
+            "num_nets": trial.suggest_int("num_nets", 10, 30),
+            "boost_rate": trial.suggest_float("boost_rate", 0.1, 0.8),
+            "lr": trial.suggest_loguniform("lr", 1e-4, 1e-2),
+            "batch_size": trial.suggest_categorical("batch_size", [64, 128, 256]),
+            "weight_decay": trial.suggest_loguniform("weight_decay", 1e-6, 1e-3),
+            "epochs_per_stage": trial.suggest_int("epochs_per_stage", 5, 10),
+            "gradient_clip": trial.suggest_float("gradient_clip", 0.5, 2.0),
+        })
+        # Use a fixed split for validation
+        X_train, X_val, cont_train, cont_val, city_train, city_val, coord_train, coord_val = train_test_split(
+            self.X_train, self.continent_targets, self.city_targets, self.coord_targets,
+            test_size=0.2, random_state=42, stratify=self.continent_targets
+        )
+        try:
+            net, metrics = train_hierarchical_grownet(
+                X_train, cont_train, city_train, coord_train, params
+            )
+            val_acc = metrics['continent_acc']
+        except Exception as e:
+            val_acc = 0.0
+        return val_acc
+
+    def tune(self):
+        study = optuna.create_study(direction='maximize')
+        study.optimize(self.objective, n_trials=self.n_trials, timeout=self.timeout)
+        self.best_params = study.best_params
+        self.best_score = study.best_value
+        print(f"Best score: {self.best_score:.4f}")
+        print(f"Best parameters: {self.best_params}")
+        return self.best_params, self.best_score
+
 # Data processing function
 def process_hierarchical_data(df):
     """Process data for hierarchical learning"""
@@ -683,6 +735,11 @@ df = pd.read_csv("/home/chandru/binp37/results/metasub/metasub_training_testing_
 
 x_data, continent_targets, city_targets, coord_targets, continent_encoder, city_encoder, coordinate_encoder = process_hierarchical_data(df)
 
+# Example usage for hyperparameter tuning:
+# tuner = HierarchicalGrowNetTuner(x_data, continent_targets, city_targets, coord_targets, params, device=device, n_trials=20, timeout=1200)
+# best_params, best_score = tuner.tune()
+# params.update(best_params)
+
 # Train model
 trained_mode,metrics = train_hierarchical_grownet(x_data,
                                                   continent_targets,
@@ -700,7 +757,146 @@ print(confusion_matrix(metrics['targets']['continent'], metrics['predictions']['
 print("\nClassification Report - City")
 print(classification_report(metrics['targets']['city'], metrics['predictions']['city']))
 
+# --- Error calculation and analysis section (added for comparison with main.py) ---
 
+def haversine_distance(lat1, lon1, lat2, lon2):
+    """
+    Calculate the great circle distance between two points on the earth (in km).
+    """
+    R = 6371.0
+    lat1_rad = np.radians(lat1)
+    lon1_rad = np.radians(lon1)
+    lat2_rad = np.radians(lat2)
+    lon2_rad = np.radians(lon2)
+    dlat = lat2_rad - lat1_rad
+    dlon = lon2_rad - lon1_rad
+    a = np.sin(dlat/2)**2 + np.cos(lat1_rad) * np.cos(lat2_rad) * np.sin(dlon/2)**2
+    c = 2 * np.arcsin(np.sqrt(a))
+    return R * c
+
+def xyz_to_latlon(xyz_coords):
+    """
+    Convert the XYZ coordinates to latitude and longitude.
+    """
+    x, y, z = xyz_coords[:, 0], xyz_coords[:, 1], xyz_coords[:, 2]
+    lat_rad = np.arcsin(np.clip(z, -1, 1))
+    lon_rad = np.arctan2(y, x)
+    lat_deg = np.degrees(lat_rad)
+    lon_deg = np.degrees(lon_rad)
+    return np.stack([lat_deg, lon_deg], axis=1)
+
+def error_calc_hierarchical_grownet(metrics, continent_encoder, city_encoder, coord_scaler):
+    # Prepare error dataframe
+    true_cont = np.array(metrics['targets']['continent'])
+    pred_cont = np.array(metrics['predictions']['continent'])
+    true_city = np.array(metrics['targets']['city'])
+    pred_city = np.array(metrics['predictions']['city'])
+    # True and predicted coordinates (xyz, scaled)
+    true_xyz = np.array(metrics['targets']['coords'])
+    pred_xyz = np.array(metrics['predictions']['coords'])
+    # Inverse transform to original xyz
+    true_xyz_orig = coord_scaler.inverse_transform(true_xyz)
+    pred_xyz_orig = coord_scaler.inverse_transform(pred_xyz)
+    # Convert to lat/lon
+    true_latlon = xyz_to_latlon(true_xyz_orig)
+    pred_latlon = xyz_to_latlon(pred_xyz_orig)
+    # Build error dataframe
+    error_df = pd.DataFrame({
+        'true_cont': true_cont,
+        'pred_cont': pred_cont,
+        'true_city': true_city,
+        'pred_city': pred_city,
+        'true_lat': true_latlon[:, 0],
+        'true_lon': true_latlon[:, 1],
+        'pred_lat': pred_latlon[:, 0],
+        'pred_lon': pred_latlon[:, 1]
+    })
+    # Assign names
+    continents = dict(zip(continent_encoder.transform(continent_encoder.classes_), continent_encoder.classes_))
+    cities = dict(zip(city_encoder.transform(city_encoder.classes_), city_encoder.classes_))
+    error_df['true_cont_name'] = error_df['true_cont'].map(continents)
+    error_df['pred_cont_name'] = error_df['pred_cont'].map(continents)
+    error_df['true_city_name'] = error_df['true_city'].map(cities)
+    error_df['pred_city_name'] = error_df['pred_city'].map(cities)
+    # Support maps
+    cont_support_map = error_df['true_cont_name'].value_counts().to_dict()
+    city_support_map = error_df['true_city_name'].value_counts().to_dict()
+    # Correctness
+    error_df['continent_correct'] = error_df['true_cont'] == error_df['pred_cont']
+    error_df['city_correct'] = error_df['true_city'] == error_df['pred_city']
+    # Haversine error
+    error_df['coord_error'] = haversine_distance(error_df['true_lat'], error_df['true_lon'], error_df['pred_lat'], error_df['pred_lon'])
+    print(f'The median distance error is {np.median(error_df["coord_error"].values):.2f} km')
+    print(f'The mean distance error is {np.mean(error_df["coord_error"].values):.2f} km')
+    print(f'The max distance error is {np.max(error_df["coord_error"].values):.2f} km')
+    # Error grouping
+    def group_label(row):
+        if row['continent_correct'] and row['city_correct']:
+            return 'C_correct Z_correct'
+        elif row['continent_correct'] and not row['city_correct']:
+            return 'C_correct Z_wrong'
+        elif not row['continent_correct'] and row['city_correct']:
+            return 'C_wrong Z_correct'
+        else:
+            return 'C_wrong Z_wrong'
+    error_df['error_group'] = error_df.apply(group_label, axis=1)
+    group_stats = error_df.groupby('error_group')['coord_error'].agg([
+        ('count', 'count'),
+        ('mean_error_km', 'mean'),
+        ('median_error_km', 'median')
+    ])
+    total = len(error_df)
+    group_stats['proportion'] = group_stats['count'] / total
+    group_stats['weighted_error'] = group_stats['mean_error_km'] * group_stats['proportion']
+    expected_total_error = group_stats['weighted_error'].sum()
+    print(group_stats)
+    print(f"Expected Coordinate Error E[D]: {expected_total_error:.2f} km")
+    # In-radius metrics
+    def compute_in_radius_metrics(y_true, y_pred, thresholds=None):
+        if thresholds is None:
+            thresholds = [1, 5, 50, 100, 250, 500, 1000, 5000]
+        distances = haversine_distance(y_true[:, 0], y_true[:, 1], y_pred[:, 0], y_pred[:, 1])
+        results = {}
+        for r in thresholds:
+            percent = np.mean(distances <= r) * 100
+            results[f"<{r} km"] = percent
+        return results
+    metrics_inradius = compute_in_radius_metrics(true_latlon, pred_latlon)
+    print("In-Radius Accuracy Metrics:")
+    for k, v in metrics_inradius.items():
+        print(f"{k:>8}: {v:.2f}%")
+    def in_radius_by_group(df, group_col, thresholds=[1, 5, 50, 100, 250, 500, 1000, 5000]):
+        df = df.copy()
+        df['coord_error'] = haversine_distance(
+            df['true_lat'].values, df['true_lon'].values,
+            df['pred_lat'].values, df['pred_lon'].values
+        )
+        results = {}
+        grouped = df.groupby(group_col)
+        for group_name, group_df in grouped:
+            res = {}
+            errors = group_df['coord_error'].values
+            for r in thresholds:
+                res[f"<{r} km"] = np.mean(errors <= r) * 100
+            results[group_name] = res
+        return pd.DataFrame(results).T
+    continent_metrics = in_radius_by_group(error_df, group_col='true_cont_name')
+    continent_metrics['continent_support'] = continent_metrics.index.map(cont_support_map)
+    print("In-Radius Accuracy per Continent")
+    print(continent_metrics.round(2))
+    city_metrics = in_radius_by_group(error_df, group_col='true_city_name')
+    city_metrics['city_support'] = city_metrics.index.map(city_support_map)
+    print("In-Radius Accuracy per City")
+    print(city_metrics.round(2))
+    error_df['continent_city'] = error_df['true_cont_name'] + " / " + error_df['true_city_name']
+    cont_city_metrics = in_radius_by_group(error_df, group_col='continent_city')
+    cont_city_metrics['city_support'] = cont_city_metrics.index.map(lambda x: x.split("/")[-1].strip()).map(city_support_map)
+    print("In-Radius Accuracy per Continent-City")
+    print(cont_city_metrics.round(2))
+
+# --- Run error calculation for hierarchical GrowNet ---
+print("\n--- Hierarchical GrowNet Error Analysis ---")
+error_calc_hierarchical_grownet(metrics, continent_encoder, city_encoder, coordinate_encoder)
 
 """
 Final Test Results:
