@@ -7,32 +7,36 @@ from sklearn.metrics import mean_squared_error, mean_absolute_error, r2_score
 
 def run_tabpfn_regressor(X_train, y_train, X_test, y_test, tune_hyperparams=False, params=None):
     """
-    Runs three separate TabPFNRegressor models to predict x, y, z coordinates.
-
-    Args:
-        X_train: Training features
-        y_train: Training labels (shape: [n_samples, 3])
-        X_test: Test features
-        y_test: Test labels (shape: [n_samples, 3])
-        params: Optional parameters (like device)
-        
-    Returns:
-        Dictionary with predictions and evaluation metrics
+    Runs TabPFNRegressor models to predict x, y, z coordinates.
+    Skips if device is CPU.
     """
     device = 'cuda' if torch.cuda.is_available() else 'cpu'
     if params and 'device' in params:
         device = params['device']
-    
-    print(f"Using device: {device}")
-    
+
+    if device == 'cpu':
+        print("TabPFNRegressor skipped: device is CPU.")
+        # Ensure predictions and lat_lon_predictions are arrays of NaN with correct shapes
+        n_samples = X_test.shape[0] if hasattr(X_test, "shape") and len(X_test.shape) > 0 else 0
+        preds = np.full((n_samples, 3), np.nan)
+        lat_lon_preds = np.full((n_samples, 2), np.nan)
+        return {
+            'models': None,
+            'predictions': preds,
+            'lat_lon_predictions': lat_lon_preds,
+            'metrics': None,
+            'skipped': True,
+            'reason': 'cpu'
+        }
+
     coord_names = ['x', 'y', 'z']
     models = {}
     preds = []
     metrics = {}
-    
+
     for i, coord in enumerate(coord_names):
         print(f"\n----- Predicting {coord.upper()} -----")
-        model = TabPFNRegressor(device=device)
+        model = TabPFNRegressor(device=device, ignore_pretraining_limits=True)
         model.fit(X_train, y_train[:, i])
         y_pred = model.predict(X_test)
         preds.append(y_pred)
@@ -44,10 +48,8 @@ def run_tabpfn_regressor(X_train, y_train, X_test, y_test, tune_hyperparams=Fals
         print(f"{coord.upper()} - MSE: {mse:.4f}, MAE: {mae:.4f}, R²: {r2:.4f}")
         metrics[coord] = {'mse': mse, 'mae': mae, 'r2': r2}
         models[coord] = model
-    
-    preds = np.stack(preds, axis=1)  # Shape: [n_samples, 3]
 
-    # Optional: convert xyz back to lat/lon
+    preds = np.stack(preds, axis=1)  # Shape: [n_samples, 3]
     lat_pred_rad = np.arcsin(preds[:, 2])
     lon_pred_rad = np.arctan2(preds[:, 1], preds[:, 0])
     lat_pred_deg = np.degrees(lat_pred_rad)

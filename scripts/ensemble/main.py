@@ -18,24 +18,30 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 
 # Import other models
+# 1. XGBoost
 from xgboost_ensemble.xgboost_classification import run_xgboost_classifier
 from xgboost_ensemble.xgboost_regression import run_xgboost_regressor
+# 2. TabPFN
 from tab_pfn.tab_pfn_classificaiton import run_tabpfn_classifier
 from tab_pfn.tab_pfn_regression import run_tabpfn_regressor
-from lightgbm_ensemble_model.lightgbm_classification import run_lightgbm_classifier
+# 3. LightGBM
+from lightgbm_ensemble.lightgbm_classification import run_lightgbm_classifier
+from lightgbm_ensemble.lightgbm_regression import run_lightgbm_regressor
+# 4. CatBoost
 from catboost_ensemble.catboost_classification import run_catboost_classifier
+from catboost_ensemble.catboost_regression import run_catboost_regressor
+# 5. GrowNet
 from grownet.grownet_classification import run_grownet_classifier
 from grownet.grownet_regressor import run_grownet_regressor
+# 6. Neural Networks
 from simple_nn.nn_classification import run_nn_classifier
 from simple_nn.nn_regression import run_nn_regressor
-from ft_transformer.ft_transformer_classification import run_ft_transformer_classifier
-from encoder.microbe_autoencoder import train_autoencoder, MicrobiomeAutoencoder
-
 
 # Geo pandas for plotting
 import geopandas as gpd
 from shapely.geometry import Point
 from scipy.spatial import cKDTree
+
 from geopy.distance import geodesic 
 from shapely.geometry import Point
 
@@ -414,6 +420,10 @@ def train_hierarchical_layer(
     meta_test_feature_list = []
     for model_key in enabled_models.keys():
         probs = test_results[model_key]
+        # Ensure probs is not None
+        if probs is None:
+            # Fill with uniform probabilities as fallback
+            probs = np.full((X_test.shape[0], n_classes), 1.0/n_classes)
         # Ensure proper shape
         if probs.ndim == 1:
             probs = probs.reshape(1, -1)
@@ -440,7 +450,6 @@ def train_hierarchical_layer(
 
     return meta_model, meta_X_train, meta_X_test, train_preds, test_preds
 
-
 # Train the ensemble models on regression tasks -> Co-ordinates predictions
 def train_hierarchical_coordinate_layer(
         X_train, X_test, y_train_lat, y_train_lon,
@@ -450,6 +459,8 @@ def train_hierarchical_coordinate_layer(
         run_grownet_regressor = None,
         run_nn_regressor = None,
         run_tabpfn_regressor = None,
+        run_lightgbm_regressor = None,
+        run_catboost_regressor = None,
         tune_hyperparams = False,
         random_state = 42,
         n_splits = 3):
@@ -482,6 +493,18 @@ def train_hierarchical_coordinate_layer(
             'function':run_tabpfn_regressor,
             'enabled':run_tabpfn_regressor is not None,
             'prediction_type':'xyz' # TabPFN predicts xyz coordinates
+        },
+        'lightgbm':{
+            'name':'LightGBM',
+            'function':run_lightgbm_regressor,
+            'enabled':run_lightgbm_regressor is not None,
+            'prediction_type':'sequential' # LightGBM does sequential lat -> lon prediction
+        },
+        'catboost':{
+            'name':'CatBoost',
+            'function':run_catboost_regressor,
+            'enabled':run_catboost_regressor is not None,
+            'prediction_type':'sequential' # CatBoost does sequential lat -> lon prediction
         }
     }
 
@@ -567,11 +590,11 @@ def train_hierarchical_coordinate_layer(
                     oof_predictions[model_key][val_idx,0] = lat_pred_val
                     oof_predictions[model_key][val_idx,1] = lon_pred_val
 
-                elif model_key in ['grownet','nn','tabpfn']:
-                    # XYZ predictions models
+                elif config['prediction_type'] == 'xyz':
+                    # XYZ predictions models (GrowNet, NN, TabPFN, LightGBM, CatBoost)
                     fold_result = config['function'](
-                        X_fold_train,y_fold_train_coords,X_fold_val,y_fold_val_coords,
-                        tune_hyperparams=False,params = best_params[model_key]
+                        X_fold_train, y_fold_train_coords, X_fold_val, y_fold_val_coords,
+                        tune_hyperparams=False, params = best_params[model_key]
                     )
 
                     # Convert XYZ to lat/lon
@@ -624,8 +647,8 @@ def train_hierarchical_coordinate_layer(
                 
                 test_results[model_key] = np.stack([lat_pred_test, lon_pred_test], axis=1)
                 
-            elif model_key in ['grownet', 'nn', 'tabpfn']:
-                # XYZ prediction models
+            elif config['prediction_type'] == 'xyz':
+                # XYZ prediction models (GrowNet, NN, TabPFN, LightGBM, CatBoost)
                 result = config['function'](
                     X_train, y_train_coords, X_test, y_test_coords,
                     params=best_params[model_key]
@@ -644,7 +667,15 @@ def train_hierarchical_coordinate_layer(
     # Create meta test features
     meta_test_feature_list = []
     for model_key in enabled_models.keys():
-        preds = test_results[model_key]
+        if model_key in test_results:
+            preds = test_results[model_key]
+        else:
+            # Fallback: fill with zeros of correct shape
+            # Try to infer shape from oof_predictions or meta_X_train
+            if meta_X_train.shape[1] // len(enabled_models) == 2:
+                preds = np.zeros((X_test.shape[0], 2))
+            else:
+                preds = np.zeros((X_test.shape[0],))
         meta_test_feature_list.append(preds)
     
     meta_X_test = np.hstack(meta_test_feature_list)
@@ -753,8 +784,8 @@ continent_model, meta_X_train_cont, meta_X_test_cont, cont_train_preds, cont_tes
     run_xgboost_classifier=run_xgboost_classifier,
     run_grownet_classifier=None,
     run_nn_classifier=None,
-    run_tabpfn_classifier=run_tabpfn_classifier,
-    run_lightgbm_classifier=False,
+    run_tabpfn_classifier=None,
+    run_lightgbm_classifier=None,
     run_catboost_classifier=None,
     tune_hyperparams=False,
     apply_smote=True,n_splits=5
@@ -771,8 +802,8 @@ city_model, meta_X_train_city, meta_X_test_city, city_train_preds, city_test_pre
     y_test=y_test_city,
     run_xgboost_classifier=run_xgboost_classifier,
     run_grownet_classifier=None,
-    run_lightgbm_classifier=False,
-    run_catboost_classifier=False,
+    run_lightgbm_classifier=None,
+    run_catboost_classifier=None,
     run_nn_classifier=None,
     run_tabpfn_classifier=None,tune_hyperparams=False,
     apply_smote=False,n_splits=5
@@ -794,10 +825,12 @@ coords_results = train_hierarchical_coordinate_layer(
     y_train_coords=y_train_coords,
     y_test_coords=y_test_coords,
     coord_scaler=processed_data['encoders']['coord'],
-    run_xgboost_regressor=None,
+    run_xgboost_regressor=run_xgboost_regressor,
     run_tabpfn_regressor=run_tabpfn_regressor,
     run_nn_regressor=None,
     run_grownet_regressor=None,
+    run_lightgbm_regressor=run_lightgbm_regressor,
+    run_catboost_regressor=run_catboost_regressor,
     tune_hyperparams=False,n_splits=5
 )
 
@@ -867,6 +900,11 @@ def error_calc(test_conts,pred_conts,test_city,pred_city,test_lat,pred_lat,test_
 
     # Step 2: Calculate the haversine distance
     error_df['coord_error'] = haversine_distance(error_df['true_lat'],error_df['true_lon'],error_df['pred_lat'],error_df['pred_lon'])
+
+    # Print the distance error statistics
+    print(f'The median distance error is {np.median(error_df['coord_error'].values)}')
+    print(f'The mean distance error is {np.mean(error_df['coord_error'].values)}')
+    print(f'The max distance error is {np.max(error_df['coord_error'].values)}')
 
     # Step 3: Group into 4 categories
     def group_label(row):
