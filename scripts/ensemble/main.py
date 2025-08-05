@@ -336,7 +336,7 @@ def train_hierarchical_layer(
                 logging.info(f"Best {config['name']} params: {best_params[model_key]}")
                 
             except Exception as e:
-                logging.error(f"Error tuning {config['name']}: {e}")
+                logging.error(f"Error tuning {config['name']} : {e}")
                 best_params[model_key] = None
     else:
         # Initialize all as None
@@ -498,13 +498,13 @@ def train_hierarchical_coordinate_layer(
             'name':'LightGBM',
             'function':run_lightgbm_regressor,
             'enabled':run_lightgbm_regressor is not None,
-            'prediction_type':'sequential' # LightGBM does sequential lat -> lon prediction
+            'prediction_type':'sequential' # LightGBM now uses sequential approach
         },
         'catboost':{
             'name':'CatBoost',
             'function':run_catboost_regressor,
             'enabled':run_catboost_regressor is not None,
-            'prediction_type':'sequential' # CatBoost does sequential lat -> lon prediction
+            'prediction_type':'sequential' # CatBoost now uses sequential approach
         }
     }
 
@@ -566,48 +566,47 @@ def train_hierarchical_coordinate_layer(
             logging.info(f"Running {config['name']} model on Fold {fold+1}/{n_splits}")
 
             try:
-                if model_key == "xgb":
-                    # XGBoost sequential prediction: lat first, then augment and predict lon
+                if config['prediction_type'] == "sequential":
+                    # Sequential prediction: lat first, then augment and predict lon
 
                     # Predict latitude
                     lat_result = config['function'](
-                        X_fold_train,y_fold_train_lat,X_fold_val,y_fold_val_lat,tune_hyperparams=False,params=best_params[model_key]
+                        X_fold_train, y_fold_train_lat, X_fold_val, y_fold_val_lat,
+                        tune_hyperparams=False, params=best_params[model_key]
                     )
                     lat_pred_train = lat_result['model'].predict(X_fold_train)
                     lat_pred_val = lat_result['predictions']
 
-                    # Augment features with predicted latitude for longitue prediction
-                    X_fold_train_aug = np.hstack([X_fold_train,lat_pred_train.reshape(-1,1)])
-                    X_fold_val_aug = np.hstack([X_fold_val,lat_pred_val.reshape(-1,1)])
+                    # Augment features with predicted latitude for longitude prediction
+                    X_fold_train_aug = np.hstack([X_fold_train, lat_pred_train.reshape(-1, 1)])
+                    X_fold_val_aug = np.hstack([X_fold_val, lat_pred_val.reshape(-1, 1)])
 
                     # Predict longitude
                     lon_result = config['function'](
-                        X_fold_train_aug,y_fold_train_lon,X_fold_val_aug,y_fold_val_lon, tune_hyperparams=False,params = best_params[model_key]
+                        X_fold_train_aug, y_fold_train_lon, X_fold_val_aug, y_fold_val_lon,
+                        tune_hyperparams=False, params=best_params[model_key]
                     )
                     lon_pred_val = lon_result['predictions']
 
                     # Store predictions
-                    oof_predictions[model_key][val_idx,0] = lat_pred_val
-                    oof_predictions[model_key][val_idx,1] = lon_pred_val
+                    oof_predictions[model_key][val_idx, 0] = lat_pred_val
+                    oof_predictions[model_key][val_idx, 1] = lon_pred_val
 
                 elif config['prediction_type'] == 'xyz':
-                    # XYZ predictions models (GrowNet, NN, TabPFN, LightGBM, CatBoost)
+                    # XYZ predictions models (GrowNet, NN, TabPFN)
                     fold_result = config['function'](
                         X_fold_train, y_fold_train_coords, X_fold_val, y_fold_val_coords,
-                        tune_hyperparams=False, params = best_params[model_key]
+                        tune_hyperparams=False, params=best_params[model_key]
                     )
 
                     # Convert XYZ to lat/lon
                     xyz_pred = fold_result['predictions']
                     xyz_rescaled = coord_scaler.inverse_transform(xyz_pred)
                     latlon_pred = xyz_to_latlon(xyz_rescaled)
-
-                    # Store predictions
                     oof_predictions[model_key][val_idx] = latlon_pred
                 
             except Exception as e:
                 logging.error(f"Error running {config['name']} on fold {fold+1}: {e}")
-                # Fill with uniform probabilities as fallback
                 exit()
 
     # Crate meta training features by concatenating all enabled model predictions
@@ -626,29 +625,36 @@ def train_hierarchical_coordinate_layer(
         logging.info(f"Training final {config['name']} model...")
         
         try:
-            if model_key == 'xgb':
-                # XGBoost sequential prediction on full data
-                lat_result = config['function'](
-                    X_train, y_train_lat, X_test, y_test_lat,
-                    params=best_params[model_key]
-                )
+            if config['prediction_type'] == 'sequential':
+                # Sequential prediction: lat first, then augment and predict lon
+                # Only pass verbose to those that accept it (XGBoost, CatBoost)
+                verbose_supported = model_key in ['xgb', 'catboost']
+                lat_kwargs = {
+                    'X_train': X_train, 'y_train': y_train_lat, 'X_test': X_test, 'y_test': y_test_lat,
+                    'params': best_params[model_key]
+                }
+                if verbose_supported:
+                    lat_kwargs['verbose'] = True
+                lat_result = config['function'](**lat_kwargs)
                 lat_pred_train = lat_result['model'].predict(X_train)
                 lat_pred_test = lat_result['predictions']
                 
                 # Augment and predict longitude
                 X_train_aug = np.hstack([X_train, lat_pred_train.reshape(-1, 1)])
                 X_test_aug = np.hstack([X_test, lat_pred_test.reshape(-1, 1)])
-                
-                lon_result = config['function'](
-                    X_train_aug, y_train_lon, X_test_aug, y_test_lon,
-                    params=best_params[model_key]
-                )
+                lon_kwargs = {
+                    'X_train': X_train_aug, 'y_train': y_train_lon, 'X_test': X_test_aug, 'y_test': y_test_lon,
+                    'params': best_params[model_key]
+                }
+                if verbose_supported:
+                    lon_kwargs['verbose'] = True
+                lon_result = config['function'](**lon_kwargs)
                 lon_pred_test = lon_result['predictions']
                 
                 test_results[model_key] = np.stack([lat_pred_test, lon_pred_test], axis=1)
-                
+
             elif config['prediction_type'] == 'xyz':
-                # XYZ prediction models (GrowNet, NN, TabPFN, LightGBM, CatBoost)
+                # XYZ prediction models (GrowNet, NN, TabPFN)
                 result = config['function'](
                     X_train, y_train_coords, X_test, y_test_coords,
                     params=best_params[model_key]
@@ -826,11 +832,11 @@ coords_results = train_hierarchical_coordinate_layer(
     y_test_coords=y_test_coords,
     coord_scaler=processed_data['encoders']['coord'],
     run_xgboost_regressor=run_xgboost_regressor,
-    run_tabpfn_regressor=run_tabpfn_regressor,
+    run_tabpfn_regressor=None,
     run_nn_regressor=None,
     run_grownet_regressor=None,
-    run_lightgbm_regressor=run_lightgbm_regressor,
-    run_catboost_regressor=run_catboost_regressor,
+    run_lightgbm_regressor=None,
+    run_catboost_regressor=None,
     tune_hyperparams=False,n_splits=5
 )
 
@@ -839,8 +845,6 @@ coords_results = train_hierarchical_coordinate_layer(
 save_dir = "saved_results/"
 os.makedirs(save_dir,exist_ok=True)
 # Continent Layer
-#print("Continent Prediction - Train Set:")
-#print(classification_report(y_train_cont, cont_train_preds, target_names=processed_data['continents']))
 
 logging.info("\nContinent Prediction - Test Set:")
 logging.info(classification_report(y_test_cont, cont_test_preds,target_names=processed_data['continents']))
@@ -850,8 +854,6 @@ np.save(os.path.join(save_dir, "y_test_cont.npy"),y_test_cont)
 np.save(os.path.join(save_dir, "y_pred_cont.npy"),cont_test_preds)
 
 # City Layer
-#print("City Prediction - Train Set:")
-#print(classification_report(y_train_city,city_train_preds,target_names=processed_data['cities']))
 
 logging.info("\nCity Prediction - Test Set:")
 logging.info(classification_report(y_test_city,city_test_preds))
@@ -878,8 +880,8 @@ def error_calc(test_conts,pred_conts,test_city,pred_city,test_lat,pred_lat,test_
         'true_city': test_city,
         'pred_city': pred_city,
         'true_lat': test_lat,
-        'true_lon': pred_lat,
-        'pred_lat': test_lon,
+        'true_lon': test_lon,
+        'pred_lat': pred_lat,
         'pred_lon': pred_lon
     })
 
@@ -1011,11 +1013,11 @@ def error_calc(test_conts,pred_conts,test_city,pred_city,test_lat,pred_lat,test_
 
 
 # Error calculations for all the predictions
-#logging.info("Starting error calculations...")
-#error_calc(test_conts=y_test_cont,pred_conts=cont_test_preds,
-#           test_city=y_test_city,pred_city = city_test_preds,
-#           test_lat=y_test_lat,pred_lat=coords_results['test_preds'][:,0],
-#           test_lon=y_test_lon,pred_lon=coords_results['test_preds'][:,1])
+logging.info("Starting error calculations...")
+error_calc(test_conts=y_test_cont,pred_conts=cont_test_preds,
+           test_city=y_test_city,pred_city = city_test_preds,
+           test_lat=y_test_lat,pred_lat=coords_results['test_preds'][:,0],
+           test_lon=y_test_lon,pred_lon=coords_results['test_preds'][:,1])
 
 # Plot the points on the world map
 logging.info("Plotting points on world map...")

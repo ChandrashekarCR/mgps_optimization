@@ -45,7 +45,7 @@ def run_tabpfn_regressor(X_train, y_train, X_test, y_test, tune_hyperparams=Fals
         mae = mean_absolute_error(y_test[:, i], y_pred)
         r2 = r2_score(y_test[:, i], y_pred)
 
-        print(f"{coord.upper()} - MSE: {mse:.4f}, MAE: {mae:.4f}, R²: {r2:.4f}")
+        print(f"{coord.upper()} - MSE: {mse:.4f}, MAE: {mae:.4f}, R2: {r2:.4f}")
         metrics[coord] = {'mse': mse, 'mae': mae, 'r2': r2}
         models[coord] = model
 
