@@ -981,7 +981,7 @@ def run_hierarchical_nn_model(X_train, X_test, y_train_cont, y_test_cont,
         "use_batch_norm": True,
         "initial_dropout": 0.3,
         "final_dropout": 0.7,
-        "lr": 5e-4,
+        "lr": 1e-3,
         "weight_decay": 1e-5,
         "batch_size": 128,
         "epochs": 400,
@@ -1051,7 +1051,7 @@ hierarchical_results = run_hierarchical_nn_model(
     y_train_city, y_test_city,
     y_train_coords, y_test_coords,
     device=device, 
-    tune_hyperparams=True,
+    tune_hyperparams=False,
     n_trials=20, 
     timeout=100
 )

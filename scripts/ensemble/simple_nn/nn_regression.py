@@ -27,7 +27,7 @@ import warnings
 warnings.filterwarnings('ignore')
 
 
-def default_params():
+def default_regression_params():
     return {
         "input_dim": 200,
         "hidden_dim": [128, 64],
@@ -46,7 +46,7 @@ def default_params():
     }
 
 
-class NNTuner:
+class NNRegressionTuner:
     def __init__(self, X_train, y_train, X_val=None, y_val=None, params=None, device="cpu", n_trials=20, timeout=1200):
         self.X_train = X_train
         self.y_train = y_train
@@ -105,7 +105,7 @@ class NNTuner:
 device = "cuda" if torch.cuda.is_available() else "cpu"
 print(f"Using device: {device}")
 
-class TrainDataset(Dataset):
+class RegressionTrainDataset(Dataset):
     def __init__(self, features, targets):
         self.features = features
         self.targets = targets
@@ -161,7 +161,7 @@ class RegressionNeuralNetwork(nn.Module):
 class NNRegressor:
     def __init__(self, params=None, device="cpu"):
         if params is None:
-            self.params = default_params()
+            self.params = default_regression_params()
         else:
             self.params = params
         self.device = device
@@ -186,8 +186,8 @@ class NNRegressor:
             )
         
         # Create datasets and dataloaders
-        train_dataset = TrainDataset(X_train, y_train)
-        val_dataset = TrainDataset(X_val, y_val)
+        train_dataset = RegressionTrainDataset(X_train, y_train)
+        val_dataset = RegressionTrainDataset(X_val, y_val)
 
         train_loader = DataLoader(train_dataset, batch_size=self.params['batch_size'], shuffle=True)
         val_loader = DataLoader(val_dataset, batch_size=self.params['batch_size'], shuffle=False)
@@ -299,7 +299,7 @@ class NNRegressor:
         all_targets = []
         losses = []
 
-        dataset = TrainDataset(X, y)
+        dataset = RegressionTrainDataset(X, y)
         loader = DataLoader(dataset, batch_size=self.params['batch_size'], shuffle=False)
         criterion = nn.MSELoss()
 
@@ -340,7 +340,7 @@ class NNRegressor:
         
         # Create dummy targets for dataset
         dummy_targets = np.zeros(X.shape[0])
-        dataset = TrainDataset(X, dummy_targets)
+        dataset = RegressionTrainDataset(X, dummy_targets)
         loader = DataLoader(dataset, batch_size=self.params['batch_size'], shuffle=False)
         
         with torch.no_grad():
@@ -355,16 +355,22 @@ class NNRegressor:
         return all_preds
 
 
-def run_nn_regressor(X_train, y_train, X_test, y_test, device="cuda",
+def run_nn_regressor(X_train, y_train, X_test, y_test, device=None,
                      tune_hyperparams=False, params=None,
                      n_trials=20, timeout=1200):
     """Run the neural network regressor"""
     
+    # Set device if not provided
+    if device is None:
+        device = "cuda" if torch.cuda.is_available() else "cpu"
+    
+    print(f"Running neural network regressor on device: {device}")
+    
     # Use default if params not given
     if params is None:
-        params = default_params()
+        params = default_regression_params()
     else:
-        default = default_params()
+        default = default_regression_params()
         default.update(params)
         params = default
 
@@ -378,7 +384,7 @@ def run_nn_regressor(X_train, y_train, X_test, y_test, device="cuda",
             X_train, y_train, test_size=0.2, random_state=42
         )
 
-        tuner = NNTuner(X_train_split, y_train_split, X_val, y_val, 
+        tuner = NNRegressionTuner(X_train_split, y_train_split, X_val, y_val, 
                        params, device=device, n_trials=n_trials, timeout=timeout)
         best_params, best_score = tuner.tune()
         params.update(best_params)

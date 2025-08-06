@@ -8,7 +8,7 @@ import warnings
 warnings.filterwarnings('ignore')
 
 
-class CatBoostRegressorTuner:
+class CatBoostRegressionOptimizer:
     def __init__(self, X_train, y_train, X_test, y_test,
                  random_state=42, n_trials=20, timeout=1200):
         self.X_train = X_train
@@ -84,8 +84,10 @@ class CatBoostRegressorTuner:
 def run_catboost_regressor(X_train, y_train, X_test, y_test,
                            tune_hyperparams=False, random_state=42,
                            n_trials=20, timeout=1200, params=None, verbose=True):
-
-    tuner = CatBoostRegressorTuner(X_train, y_train, X_test, y_test,
+    """
+    CatBoost regression wrapper for ensemble.
+    """
+    tuner = CatBoostRegressionOptimizer(X_train, y_train, X_test, y_test,
                                    random_state=random_state, n_trials=n_trials, timeout=timeout)
 
     if tune_hyperparams:

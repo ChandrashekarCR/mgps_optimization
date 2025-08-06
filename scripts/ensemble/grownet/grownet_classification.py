@@ -27,7 +27,7 @@ import time
 import warnings
 warnings.filterwarnings('ignore')
 
-def default_params():
+def grownet_classification_default_params():
     return {
         "hidden_size": 256,
         "num_nets": 10,
@@ -44,7 +44,7 @@ def default_params():
     }
 
 
-class GrowNetTuner:
+class GrowNetClassificationTuner:
     def __init__(self, X_train, y_train, X_val, y_val, params, device="cpu",n_trials = 20, timeout=1200):
         self.X_train = X_train
         self.y_train = y_train
@@ -72,7 +72,7 @@ class GrowNetTuner:
         })
 
         # Train model
-        model = GrowNetClassifier(params, device=self.device)
+        model = GrowNetClassifierUnique(params, device=self.device)
         model.fit(self.X_train, self.y_train, X_val=self.X_val, y_val=self.y_val)
         val_metrics = model.evaluate(self.X_val, self.y_val)
         val_acc = val_metrics['class_accuracy']
@@ -95,7 +95,7 @@ device = "cuda" if torch.cuda.is_available() else "cpu"
 print(f"Using device: {device}")
 
 # Dataset class for continent classification
-class TrainDataset(Dataset):
+class GrowNetClassificationTrainDataset(Dataset):
     def __init__(self, features, n_targets):
         self.features = features
         self.n_targets = n_targets
@@ -111,9 +111,9 @@ class TrainDataset(Dataset):
 
     
 # DynamicNet for classification
-class DynamicNet(nn.Module):
+class GrowNetClassificationDynamicNet(nn.Module):
     def __init__(self, c0_classes, lr):
-        super(DynamicNet,self).__init__()
+        super(GrowNetClassificationDynamicNet,self).__init__()
         self.models = []
         self.c0_classes = c0_classes
         self.lr = lr
@@ -190,46 +190,33 @@ class DynamicNet(nn.Module):
         return middle_feat_cum, final_classes
 
 
-class FeatureAttention(nn.Module):
-    def __init__(self,input_dim):
-        super(FeatureAttention,self).__init__()
-        self.attn = nn.Sequential(
-            nn.Linear(input_dim,128),
-            nn.Tanh(),
-            nn.Linear(128,input_dim)
-        )
-    def forward(self,x):
-        attn_scores = self.attn(x)
-        attn_weights = torch.softmax(attn_scores,dim=1)
-        return x * attn_weights
-    
-class MLP(nn.Module):
+class GrowNetClassificationMLP(nn.Module):
     def __init__(self, input_dim, hidden_dim1, hidden_dim2, output_dim):
-        super(MLP,self).__init__()
+        super(GrowNetClassificationMLP,self).__init__()
         self.bn = nn.BatchNorm1d(input_dim)
-        self.attn = FeatureAttention(input_dim=input_dim)
 
-        # Feature Extraction
-        self.feature_extraction = nn.Sequential(
-            nn.Dropout(0.2),
-            nn.Linear(input_dim,hidden_dim1),
-            nn.ReLU(),
-            nn.BatchNorm1d(hidden_dim1),
-            nn.Dropout(0.4),
-            nn.Linear(hidden_dim1,hidden_dim2),
-            nn.ReLU()            
-            )
-        
-        self.class_head = nn.Linear(hidden_dim2,output_dim)
+        # Simple feedforward layers
+        self.fc1 = nn.Linear(input_dim, hidden_dim1)
+        self.relu1 = nn.ReLU()
+        self.bn1 = nn.BatchNorm1d(hidden_dim1)
+        self.dropout1 = nn.Dropout(0.2)
+        self.fc2 = nn.Linear(hidden_dim1, hidden_dim2)
+        self.relu2 = nn.ReLU()
+        self.bn2 = nn.BatchNorm1d(hidden_dim2)
+        self.dropout2 = nn.Dropout(0.4)
+        self.class_head = nn.Linear(hidden_dim2, output_dim)
 
-    def forward(self,x, lower_f): # In a hierarchical network each new model can recieve not just orignial input but also previously learned features
+    def forward(self,x, lower_f): # In a hierarchical network each new model can receive not just original input but also previously learned features
         if lower_f is not None:
             x = torch.cat([x,lower_f],dim=1)
-            x = self.attn(x)
             x = self.bn(x)
 
-        # Extract features
-        shared_features = self.feature_extraction(x)
+        # Simple feedforward
+        x = self.dropout1(self.relu1(self.fc1(x)))
+        x = self.bn1(x)
+        x = self.dropout2(self.relu2(self.fc2(x)))
+        x = self.bn2(x)
+        shared_features = x
 
         # Prediction
         n_classes = self.class_head(shared_features)
@@ -253,10 +240,10 @@ class MLP(nn.Module):
         return model
 
 
-class GrowNetClassifier:
+class GrowNetClassifierUnique:
     def __init__(self, params = None, device="cpu"):
         if params is None:
-            self.params = default_params()
+            self.params = grownet_classification_default_params()
         else:
             self.params = params
         self.device = device
@@ -299,8 +286,8 @@ class GrowNetClassifier:
         if X_val is None or y_val is None:
             X_train, X_val, y_train, y_val = train_test_split(X_train, y_train,test_size=self.params['val_split'],random_state=self.params['random_state'],stratify=class_labels_flat)
 
-        train_ds = TrainDataset(X_train, y_train)
-        val_ds = TrainDataset(X_val, y_val)
+        train_ds = GrowNetClassificationTrainDataset(X_train, y_train)
+        val_ds = GrowNetClassificationTrainDataset(X_val, y_val)
         train_loader = DataLoader(train_ds, batch_size=self.params['batch_size'], shuffle=True)
 
         print(f"Train size: {len(train_ds)}, Val size: {len(val_ds)}")
@@ -309,7 +296,7 @@ class GrowNetClassifier:
         
         # Init ensemble
         c0_classes = torch.tensor(np.log(np.mean(y_train, axis=0)), dtype=torch.float).unsqueeze(0).to(self.device)
-        self.net_ensemble = DynamicNet(c0_classes, self.params['boost_rate'])
+        self.net_ensemble = GrowNetClassificationDynamicNet(c0_classes, self.params['boost_rate'])
         self.net_ensemble.to(self.device)
         
         best_val_loss = float("inf")
@@ -321,7 +308,7 @@ class GrowNetClassifier:
             t0 = time.time()
             
             print(f"\nTraining weak learner {stage+1}/{self.params['num_nets']}")
-            model = MLP.get_model(stage, self.params).to(self.device)
+            model = GrowNetClassificationMLP.get_model(stage, self.params).to(self.device)
             optimizer = torch.optim.Adam(model.parameters(), lr, weight_decay=self.params['weight_decay'])
             self.net_ensemble.to_train()
             
@@ -381,7 +368,7 @@ class GrowNetClassifier:
         class_losses = []
         y = self._one_hot(y)
 
-        loader = DataLoader(TrainDataset(X, y), batch_size=self.params['batch_size'], shuffle=False)
+        loader = DataLoader(GrowNetClassificationTrainDataset(X, y), batch_size=self.params['batch_size'], shuffle=False)
         with torch.no_grad():
             for batch in loader:
                 x = batch["x"].to(self.device)
@@ -408,7 +395,7 @@ class GrowNetClassifier:
         self.net_ensemble.to_eval()
         all_preds = []
         all_preds_prob = []
-        loader = DataLoader(TrainDataset(X, np.zeros((X.shape[0], self.params['n_classes']))), batch_size=self.params['batch_size'], shuffle=False)
+        loader = DataLoader(GrowNetClassificationTrainDataset(X, np.zeros((X.shape[0], self.params['n_classes']))), batch_size=self.params['batch_size'], shuffle=False)
         with torch.no_grad():
             for batch in loader:
                 x = batch["x"].to(self.device)
@@ -423,12 +410,15 @@ class GrowNetClassifier:
         }
     
 def run_grownet_classifier(X_train,y_train,X_test,y_test,params=None,
-                tune_hyperparams = False, n_trials=20,timeout=1200,device="cuda"):
-    # Use deafult if params not given
+                tune_hyperparams = False, n_trials=20,timeout=1200,device=None):
+    # Use default device if not provided
+    if device is None:
+        device = "cuda" if torch.cuda.is_available() else "cpu"
+    # Use default if params not given
     if params is None:
-        params = default_params()
+        params = grownet_classification_default_params()
     else:
-        default = default_params()
+        default = grownet_classification_default_params()
         default.update(params)
         params = default
     
@@ -436,13 +426,13 @@ def run_grownet_classifier(X_train,y_train,X_test,y_test,params=None,
         # Split validation set from training data
         X_train_split, X_val, y_train_split, y_val = train_test_split(X_train,y_train,test_size=0.2,random_state=42, stratify=y_train)
 
-        tuner = GrowNetTuner(X_train_split,y_train_split,X_val,y_val,params,device=device,n_trials=n_trials,timeout=timeout)
+        tuner = GrowNetClassificationTuner(X_train_split,y_train_split,X_val,y_val,params,device=device,n_trials=n_trials,timeout=timeout)
         best_params, best_score = tuner.tune()
         params.update(best_params)
         print("Using best params:", params)
     
     # Train final model on full training data
-    model = GrowNetClassifier(params,device=device)
+    model = GrowNetClassifierUnique(params,device=device)
     model.fit(X_train,y_train)
     
     results = model.evaluate(X_test,y_test)

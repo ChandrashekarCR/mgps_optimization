@@ -105,8 +105,7 @@ class CombinedHierarchicalNet(nn.Module):
         dropout_cont=(0.3, 0.7),
         dropout_city=(0.3, 0.7),
         dropout_coord=(0.2, 0.5),
-        use_batch_norm=True,
-        uncertainty_weighting=True
+        use_batch_norm=True
     ):
         super().__init__()
         # Continent branch
@@ -121,12 +120,6 @@ class CombinedHierarchicalNet(nn.Module):
         self.coord_branch = self._make_branch(
             input_dim + num_continents + num_cities, hidden_dims_coord, coord_dim, dropout_coord, use_batch_norm, output_activation=None
         )
-        # Uncertainty weights (learnable)
-        self.uncertainty_weighting = uncertainty_weighting
-        if uncertainty_weighting:
-            self.log_sigma1 = nn.Parameter(torch.tensor(0.0)) # continent
-            self.log_sigma2 = nn.Parameter(torch.tensor(0.0)) # city
-            self.log_sigma3 = nn.Parameter(torch.tensor(0.0)) # coord
 
     def _make_branch(self, in_dim, hidden_dims, out_dim, dropout_range, use_bn, output_activation=None):
         layers = []
@@ -161,12 +154,16 @@ def train_combined_hierarchical(
     model, train_loader, val_loader, device,
     continent_weight=None, city_weight=None, coord_weight=None,
     lr=1e-3, weight_decay=1e-5, epochs=600, early_stopping_steps=50,
-    print_every=10
+    print_every=10,
+    continent_class_weights=None,
+    city_class_weights=None
 ):
     model = model.to(device)
+    # Add optimizer definition here
     optimizer = torch.optim.Adam(model.parameters(), lr=lr, weight_decay=weight_decay)
-    criterion_cont = nn.CrossEntropyLoss(weight=continent_weight)
-    criterion_city = nn.CrossEntropyLoss(weight=city_weight)
+    # FIX: Only pass tensor weights to CrossEntropyLoss, not scalar weights
+    criterion_cont = nn.CrossEntropyLoss(weight=continent_class_weights)
+    criterion_city = nn.CrossEntropyLoss(weight=city_class_weights)
     criterion_coord = nn.MSELoss()
     best_val_loss = float('inf')
     best_model_state = None
@@ -192,22 +189,11 @@ def train_combined_hierarchical(
                 loss_city = loss_city.mean()
             if loss_coord.dim() > 0:
                 loss_coord = loss_coord.mean()
-            # Uncertainty weighting or manual weights
-            if hasattr(model, "uncertainty_weighting") and model.uncertainty_weighting:
-                sigma1 = torch.exp(model.log_sigma1)
-                sigma2 = torch.exp(model.log_sigma2)
-                sigma3 = torch.exp(model.log_sigma3)
-                loss = (
-                    (1/(2*sigma1**2))*loss_cont + torch.log(sigma1) +
-                    (1/(2*sigma2**2))*loss_city + torch.log(sigma2) +
-                    (1/(2*sigma3**2))*loss_coord + torch.log(sigma3)
-                )
-            else:
-                # Default: continent > city > coord
-                w1 = 1.0 if continent_weight is None else continent_weight
-                w2 = 0.5 if city_weight is None else city_weight
-                w3 = 0.2 if coord_weight is None else coord_weight
-                loss = w1*loss_cont + w2*loss_city + w3*loss_coord
+            # Only static weighting (scalars)
+            w1 = 1.0 if continent_weight is None else continent_weight
+            w2 = 0.5 if city_weight is None else city_weight
+            w3 = 0.2 if coord_weight is None else coord_weight
+            loss = w1*loss_cont + w2*loss_city + w3*loss_coord
             optimizer.zero_grad()
             loss.backward()
             optimizer.step()
@@ -237,20 +223,11 @@ def train_combined_hierarchical(
                     loss_city = loss_city.mean()
                 if loss_coord.dim() > 0:
                     loss_coord = loss_coord.mean()
-                if hasattr(model, "uncertainty_weighting") and model.uncertainty_weighting:
-                    sigma1 = torch.exp(model.log_sigma1)
-                    sigma2 = torch.exp(model.log_sigma2)
-                    sigma3 = torch.exp(model.log_sigma3)
-                    loss = (
-                        (1/(2*sigma1**2))*loss_cont + torch.log(sigma1) +
-                        (1/(2*sigma2**2))*loss_city + torch.log(sigma2) +
-                        (1/(2*sigma3**2))*loss_coord + torch.log(sigma3)
-                    )
-                else:
-                    w1 = 1.0 if continent_weight is None else continent_weight
-                    w2 = 0.5 if city_weight is None else city_weight
-                    w3 = 0.2 if coord_weight is None else coord_weight
-                    loss = w1*loss_cont + w2*loss_city + w3*loss_coord
+                # Only static weighting (scalars)
+                w1 = 1.0 if continent_weight is None else continent_weight
+                w2 = 0.5 if city_weight is None else city_weight
+                w3 = 0.2 if coord_weight is None else coord_weight
+                loss = w1*loss_cont + w2*loss_city + w3*loss_coord
                 val_loss += loss.item()
                 val_cont += loss_cont.item()
                 val_city += loss_city.item()
@@ -392,8 +369,11 @@ class CombinedModelTuner:
         lr = trial.suggest_loguniform("lr", 1e-4, 1e-2)
         weight_decay = trial.suggest_loguniform("weight_decay", 1e-6, 1e-3)
         use_batch_norm = trial.suggest_categorical("use_batch_norm", [True, False])
-        uncertainty_weighting = trial.suggest_categorical("uncertainty_weighting", [True, False])
         batch_size = trial.suggest_categorical("batch_size", [64, 128, 256])
+        # Enforce continent_weight > city_weight > coord_weight
+        continent_weight = trial.suggest_float("continent_weight", 1.0, 2.0)
+        city_weight = trial.suggest_float("city_weight", 0.5, continent_weight - 1e-4)
+        coord_weight = trial.suggest_float("coord_weight", 0.05, city_weight - 1e-4)
 
         model = CombinedHierarchicalNet(
             input_dim=self.input_dim,
@@ -406,16 +386,21 @@ class CombinedModelTuner:
             dropout_cont=dropout_cont,
             dropout_city=dropout_city,
             dropout_coord=dropout_coord,
-            use_batch_norm=use_batch_norm,
-            uncertainty_weighting=uncertainty_weighting
+            use_batch_norm=use_batch_norm
         )
         # Use a subset of data for speed
         train_loader = self.train_loader
         val_loader = self.val_loader
 
+        # Do not pass scalar weights as class weights
         model, train_losses, val_losses = train_combined_hierarchical(
             model, train_loader, val_loader, self.device,
-            lr=lr, weight_decay=weight_decay, epochs=60, early_stopping_steps=10, print_every=20
+            continent_weight=continent_weight,
+            city_weight=city_weight,
+            coord_weight=coord_weight,
+            lr=lr, weight_decay=weight_decay, epochs=600, early_stopping_steps=50, print_every=20,
+            continent_class_weights=None,  # <-- always None for tuning
+            city_class_weights=None
         )
         results = evaluate_combined(model, val_loader, self.device)
         # Use coordinate RMSE as the main metric (minimize)
@@ -454,7 +439,7 @@ if __name__ == "__main__":
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
     # --- Tuning logic ---
-    tune_hyperparams = True  # Set to False to skip tuning
+    tune_hyperparams = False  # Set to False to skip tuning
     n_trials = 20
     timeout = 600
 
@@ -481,12 +466,14 @@ if __name__ == "__main__":
             dropout_cont=(best_params["dropout_cont_start"], best_params["dropout_cont_end"]),
             dropout_city=(best_params["dropout_city_start"], best_params["dropout_city_end"]),
             dropout_coord=(best_params["dropout_coord_start"], best_params["dropout_coord_end"]),
-            use_batch_norm=best_params["use_batch_norm"],
-            uncertainty_weighting=best_params["uncertainty_weighting"]
+            use_batch_norm=best_params["use_batch_norm"]
         )
         lr = best_params["lr"]
         weight_decay = best_params["weight_decay"]
         batch_size = best_params["batch_size"]
+        continent_weight = best_params["continent_weight"]
+        city_weight = best_params["city_weight"]
+        coord_weight = best_params["coord_weight"]
         train_loader = DataLoader(train_ds, batch_size=batch_size, shuffle=True)
         test_loader = DataLoader(test_ds, batch_size=batch_size, shuffle=False)
     else:
@@ -501,11 +488,13 @@ if __name__ == "__main__":
             dropout_cont=(0.3, 0.7),
             dropout_city=(0.3, 0.7),
             dropout_coord=(0.2, 0.5),
-            use_batch_norm=True,
-            uncertainty_weighting=True
+            use_batch_norm=True
         )
         lr = 1e-3
         weight_decay = 1e-5
+        continent_weight = 1.0
+        city_weight = 0.5
+        coord_weight = 0.2
 
     # Class weights for continent (inverse frequency)
     class_counts = np.bincount(y_train_cont)
@@ -515,9 +504,12 @@ if __name__ == "__main__":
     # Train
     model, train_losses, val_losses = train_combined_hierarchical(
         model, train_loader, test_loader, device,
-        continent_weight=continent_weights.to(device),
-        city_weight=None, coord_weight=None,
-        lr=lr, weight_decay=weight_decay, epochs=600, early_stopping_steps=50, print_every=10
+        continent_weight=continent_weight,
+        city_weight=city_weight,
+        coord_weight=coord_weight,
+        lr=lr, weight_decay=weight_decay, epochs=600, early_stopping_steps=50, print_every=10,
+        continent_class_weights=continent_weights,  # <-- pass tensor hereopyLoss
+        city_class_weights=None
     )
     # Evaluate
     results = evaluate_combined(model, test_loader, device, coord_scaler=coord_scaler)
