@@ -8,7 +8,7 @@ import pandas as pd
 import numpy as np
 from sklearn.preprocessing import LabelEncoder, StandardScaler
 from sklearn.model_selection import train_test_split, StratifiedKFold, StratifiedShuffleSplit, KFold
-from sklearn.metrics import classification_report, confusion_matrix, accuracy_score
+from sklearn.metrics import classification_report, confusion_matrix, accuracy_score, r2_score
 from sklearn.linear_model import LogisticRegression
 import xgboost as xgb
 from imblearn.over_sampling import SMOTE
@@ -31,7 +31,7 @@ from lightgbm_ensemble.lightgbm_regression import run_lightgbm_regressor
 from catboost_ensemble.catboost_classification import run_catboost_classifier
 from catboost_ensemble.catboost_regression import run_catboost_regressor
 # 5. GrowNet
-from grownet.grownet_classification import run_grownet_classifier
+from grownet.grownet_classification import run_grownet_classifier 
 from grownet.grownet_regressor import run_grownet_regressor
 # 6. Neural Networks
 from simple_nn.nn_classification import run_nn_classifier
@@ -206,6 +206,47 @@ def plot_points_on_world_map(true_lat, true_long, predicted_lat, predicted_long,
     plt.tight_layout()
     plt.savefig(filename) # Save the plot as an image
     plt.show()
+
+def filter_models_by_accuracy(oof_probs, y_true, accuracy_threshold):
+    """
+    Filter models whose out-of-fold predictions achieve accuracy >= threshold.
+    Args:
+        oof_probs: dict of model_key -> np.ndarray of shape (n_samples, n_classes)
+        y_true: true labels (n_samples,)
+        accuracy_threshold: minimum accuracy required to include model
+    Returns:
+        filtered_oof_probs: dict of model_key -> np.ndarray (only those meeting threshold)
+        passed_models: list of model_keys that passed
+        model_accuracies: dict of model_key -> accuracy
+    """
+    filtered_oof_probs = {}
+    passed_models = []
+    model_accuracies = {}
+    for model_key, probs in oof_probs.items():
+        preds = np.argmax(probs, axis=1)
+        acc = accuracy_score(y_true, preds)
+        model_accuracies[model_key] = acc
+        if acc >= accuracy_threshold:
+            filtered_oof_probs[model_key] = probs
+            passed_models.append(model_key)
+    return filtered_oof_probs, passed_models, model_accuracies
+
+
+# --- NEW: Compute median geodesic error for each model and select the best ---
+def compute_model_median_distance(oof_preds, y_true):
+    """
+    Compute median geodesic (haversine) error for each model.
+    Args:
+        oof_preds: dict of model_key -> np.ndarray (n_samples, 2)
+        y_true: np.ndarray (n_samples, 2)
+    Returns:
+        model_median_errors: dict of model_key -> median error (km)
+    """
+    model_median_errors = {}
+    for model_key, preds in oof_preds.items():
+        distances = haversine_distance(y_true[:, 0], y_true[:, 1], preds[:, 0], preds[:, 1])
+        model_median_errors[model_key] = np.median(distances)
+    return model_median_errors
 
 # Train the ensemble models on classification tasks -> Continent and city classification
 def train_hierarchical_layer(
@@ -388,19 +429,29 @@ def train_hierarchical_layer(
                 # Fill with uniform probabilities as fallback
                 oof_probs[model_key][val_idx] = np.full((len(val_idx), n_classes), 1.0/n_classes)
 
+    # Filter models by accuracy threshold
+    filtered_oof_probs, passed_models, model_accuracies = filter_models_by_accuracy(
+        oof_probs, y_train, accuracy_threshold
+    )
+    if not filtered_oof_probs:
+        raise ValueError(f"No models met the accuracy threshold of {accuracy_threshold*100:.1f}%.")
+
+    logging.info(f"Model accuracies: {model_accuracies}")
+    logging.info(f"Models passing threshold ({accuracy_threshold*100:.1f}%): {passed_models}")
+
     # Create meta training features by concatenating all enabled model predictions
     meta_feature_list = []
-    for model_key in enabled_models.keys():
-        meta_feature_list.append(oof_probs[model_key])
-    
+    for model_key in passed_models:
+        meta_feature_list.append(filtered_oof_probs[model_key])
     meta_X_train = np.hstack(meta_feature_list)
     logging.info(f"Meta training features shape: {meta_X_train.shape}")
 
     # Train final models on the full training data
     logging.info("\nTraining final models on the full training data")
     test_results = {}
-    
     for model_key, config in enabled_models.items():
+        if model_key not in passed_models:
+            continue
         logging.info(f"Training final {config['name']} model...")
         
         try:
@@ -418,13 +469,10 @@ def train_hierarchical_layer(
 
     # Create meta test features
     meta_test_feature_list = []
-    for model_key in enabled_models.keys():
-        probs = test_results[model_key]
-        # Ensure probs is not None
+    for model_key in passed_models:
+        probs = test_results.get(model_key)
         if probs is None:
-            # Fill with uniform probabilities as fallback
             probs = np.full((X_test.shape[0], n_classes), 1.0/n_classes)
-        # Ensure proper shape
         if probs.ndim == 1:
             probs = probs.reshape(1, -1)
         meta_test_feature_list.append(probs)
@@ -450,6 +498,7 @@ def train_hierarchical_layer(
 
     return meta_model, meta_X_train, meta_X_test, train_preds, test_preds
 
+
 # Train the ensemble models on regression tasks -> Co-ordinates predictions
 def train_hierarchical_coordinate_layer(
         X_train, X_test, y_train_lat, y_train_lon,
@@ -463,9 +512,12 @@ def train_hierarchical_coordinate_layer(
         run_catboost_regressor = None,
         tune_hyperparams = False,
         random_state = 42,
-        n_splits = 3):
+        n_splits = 3,
+        use_best_model_by_distance=True  # <--- keep this True
+    ):
     """
-    Dynamic hierarchical coordinate prediction laer similar to the classification version.
+    Dynamic hierarchical coordinate prediction layer similar to the classification version.
+    If use_best_model_by_distance is True, only the model with lowest median distance error is used.
     """
 
     # Define all possible models with their cofigurations
@@ -514,7 +566,7 @@ def train_hierarchical_coordinate_layer(
     if not enabled_models:
         raise ValueError("At least one model function must be provided (not None)")
     
-    logging.info(f"Enabled models: {list(enabled_models.keys())}")
+    print(f"Enabled models: {list(enabled_models.keys())}")
 
     # Split the same data set to tune the hyperparameters for the mode byt with different random state
     X_train_hyper, X_test_hyper, y_train_hyper_lat, y_test_hyper_lat = train_test_split(
@@ -531,10 +583,10 @@ def train_hierarchical_coordinate_layer(
     best_params = {}
     
     if tune_hyperparams:
-        logging.info("Tuning hyperparameters for the enabled models")
+        print("Tuning hyperparameters for the enabled models")
         
         for model_key, config in enabled_models.items():
-            logging.info(f"Tuning {config['name']} hyperparameters...")
+            print(f"Tuning {config['name']} hyperparameters...")
             
             # Write the tuning function here, Keep this empty now as I have not added tuning to the other scripts.
     else:
@@ -553,7 +605,7 @@ def train_hierarchical_coordinate_layer(
     # Cross validation loop
     for fold, (train_idx, val_idx) in enumerate(kf.split(X_train)):
 
-        logging.info(f"\nFold {fold+1}/{n_splits}")
+        print(f"\nFold {fold+1}/{n_splits}")
 
         # SPlit data for this fold
         X_fold_train, X_fold_val = X_train[train_idx], X_train[val_idx]
@@ -563,7 +615,7 @@ def train_hierarchical_coordinate_layer(
 
         # Train each enabled model
         for model_key, config in enabled_models.items():
-            logging.info(f"Running {config['name']} model on Fold {fold+1}/{n_splits}")
+            print(f"Running {config['name']} model on Fold {fold+1}/{n_splits}")
 
             try:
                 if config['prediction_type'] == "sequential":
@@ -609,108 +661,99 @@ def train_hierarchical_coordinate_layer(
                 logging.error(f"Error running {config['name']} on fold {fold+1}: {e}")
                 exit()
 
-    # Crate meta training features by concatenating all enabled model predictions
+    # Combine ground truth latitude and longitude for R2 evaluation
+    y_train_combined = np.stack([y_train_lat, y_train_lon], axis=1)
+    
+    # --- Only use the best model by median distance error ---
+    model_median_errors = compute_model_median_distance(oof_predictions, y_train_combined)
+    print(f"Model median geodesic errors (km): {model_median_errors}")
+    best_model = min(model_median_errors, key=model_median_errors.get)
+    print(f"Using only the best model by median distance error: {best_model}")
+
+    # Use only the best model's predictions
+    meta_X_train = oof_predictions[best_model]
+    passed_models = [best_model]
+
+    # Create meta training features by concatenating only the passed model predictions
     meta_features_list = []
-    for model_key in enabled_models.keys():
+    for model_key in passed_models:
         meta_features_list.append(oof_predictions[model_key])
 
     meta_X_train = np.hstack(meta_features_list)
-    logging.info(f"Meta training feature shape :{meta_X_train.shape}")
+    print(f"Meta training feature shape: {meta_X_train.shape}")
 
-    # Train final models on the full training data
-    logging.info("\nTraining final models on the full training data")
+    # Train final model on full training data
+    print("\nTraining final model on the full training data")
+    config = enabled_models[best_model]
     test_results = {}
     
-    for model_key, config in enabled_models.items():
-        logging.info(f"Training final {config['name']} model...")
-        
-        try:
-            if config['prediction_type'] == 'sequential':
-                # Sequential prediction: lat first, then augment and predict lon
-                # Only pass verbose to those that accept it (XGBoost, CatBoost)
-                verbose_supported = model_key in ['xgb', 'catboost']
-                lat_kwargs = {
-                    'X_train': X_train, 'y_train': y_train_lat, 'X_test': X_test, 'y_test': y_test_lat,
-                    'params': best_params[model_key]
-                }
-                if verbose_supported:
-                    lat_kwargs['verbose'] = True
-                lat_result = config['function'](**lat_kwargs)
-                lat_pred_train = lat_result['model'].predict(X_train)
-                lat_pred_test = lat_result['predictions']
-                
-                # Augment and predict longitude
-                X_train_aug = np.hstack([X_train, lat_pred_train.reshape(-1, 1)])
-                X_test_aug = np.hstack([X_test, lat_pred_test.reshape(-1, 1)])
-                lon_kwargs = {
-                    'X_train': X_train_aug, 'y_train': y_train_lon, 'X_test': X_test_aug, 'y_test': y_test_lon,
-                    'params': best_params[model_key]
-                }
-                if verbose_supported:
-                    lon_kwargs['verbose'] = True
-                lon_result = config['function'](**lon_kwargs)
-                lon_pred_test = lon_result['predictions']
-                
-                test_results[model_key] = np.stack([lat_pred_test, lon_pred_test], axis=1)
+    try:
+        if config['prediction_type'] == 'sequential':
+            # Sequential prediction: lat first, then augment and predict lon
+            # Only pass verbose to those that accept it (XGBoost, CatBoost)
+            verbose_supported = best_model in ['xgb', 'catboost']
+            lat_kwargs = {
+                'X_train': X_train, 'y_train': y_train_lat, 'X_test': X_test, 'y_test': y_test_lat,
+                'params': best_params[best_model]
+            }
+            if verbose_supported:
+                lat_kwargs['verbose'] = True
+            lat_result = config['function'](**lat_kwargs)
+            lat_pred_train = lat_result['model'].predict(X_train)
+            lat_pred_test = lat_result['predictions']
+            
+            # Augment and predict longitude
+            X_train_aug = np.hstack([X_train, lat_pred_train.reshape(-1, 1)])
+            X_test_aug = np.hstack([X_test, lat_pred_test.reshape(-1, 1)])
+            lon_kwargs = {
+                'X_train': X_train_aug, 'y_train': y_train_lon, 'X_test': X_test_aug, 'y_test': y_test_lon,
+                'params': best_params[best_model]
+            }
+            if verbose_supported:
+                lon_kwargs['verbose'] = True
+            lon_result = config['function'](**lon_kwargs)
+            lon_pred_test = lon_result['predictions']
+            
+            test_results[best_model] = np.stack([lat_pred_test, lon_pred_test], axis=1)
 
-            elif config['prediction_type'] == 'xyz':
-                # XYZ prediction models (GrowNet, NN, TabPFN)
-                result = config['function'](
-                    X_train, y_train_coords, X_test, y_test_coords,
-                    params=best_params[model_key]
-                )
-                
-                xyz_pred = result['predictions']
-                xyz_rescaled = coord_scaler.inverse_transform(xyz_pred)
-                latlon_pred = xyz_to_latlon(xyz_rescaled)
-                
-                test_results[model_key] = latlon_pred
-                
-        except Exception as e:
-            logging.error(f"Error training final {config['name']} model : {e}")
-            exit()
+        elif config['prediction_type'] == 'xyz':
+            # XYZ prediction models (GrowNet, NN, TabPFN)
+            result = config['function'](
+                X_train, y_train_coords, X_test, y_test_coords,
+                params=best_params[best_model]
+            )
+            
+            xyz_pred = result['predictions']
+            xyz_rescaled = coord_scaler.inverse_transform(xyz_pred)
+            latlon_pred = xyz_to_latlon(xyz_rescaled)
+            
+            test_results[best_model] = latlon_pred
+            
+    except Exception as e:
+        logging.error(f"Error training final {config['name']} model : {e}")
+        exit()
 
-    # Create meta test features
+    # Create meta test features (only using passed models)
     meta_test_feature_list = []
-    for model_key in enabled_models.keys():
+    for model_key in passed_models:
         if model_key in test_results:
             preds = test_results[model_key]
         else:
             # Fallback: fill with zeros of correct shape
-            # Try to infer shape from oof_predictions or meta_X_train
-            if meta_X_train.shape[1] // len(enabled_models) == 2:
-                preds = np.zeros((X_test.shape[0], 2))
-            else:
-                preds = np.zeros((X_test.shape[0],))
+            preds = np.zeros((X_test.shape[0], 2))
         meta_test_feature_list.append(preds)
     
     meta_X_test = np.hstack(meta_test_feature_list)
-    logging.info(f"Meta test features shape: {meta_X_test.shape}")
+    print(f"Meta test features shape: {meta_X_test.shape}")
 
-    # Train meta models (separate for lat and lon)
-    logging.info("\nTraining meta models...")
-    
     # Prepare targets
     y_train_combined = np.stack([y_train_lat, y_train_lon], axis=1)
     y_test_combined = np.stack([y_test_lat, y_test_lon], axis=1)
-    
-    # Train separate XGBoost models for latitude and longitude
-    meta_lat_model = xgb.XGBRegressor(objective='reg:squarederror', random_state=random_state)
-    meta_lon_model = xgb.XGBRegressor(objective='reg:squarederror', random_state=random_state)
-    
-    meta_lat_model.fit(meta_X_train, y_train_lat)
-    meta_lon_model.fit(meta_X_train, y_train_lon)
 
     # Make predictions
-    train_lat_preds = meta_lat_model.predict(meta_X_train)
-    train_lon_preds = meta_lon_model.predict(meta_X_train)
-    train_preds = np.stack([train_lat_preds, train_lon_preds], axis=1)
-    
-    test_lat_preds = meta_lat_model.predict(meta_X_test)
-    test_lon_preds = meta_lon_model.predict(meta_X_test)
-    test_preds = np.stack([test_lat_preds, test_lon_preds], axis=1)
+    test_preds = test_results[best_model]
 
-# Calculate distance metrics
+    # Calculate distance metrics
     def calculate_distance_metrics(y_true, y_pred):
         distances = haversine_distance(y_true[:, 0], y_true[:, 1], y_pred[:, 0], y_pred[:, 1])
         return {
@@ -721,30 +764,23 @@ def train_hierarchical_coordinate_layer(
             'distances': distances
         }
 
-    train_metrics = calculate_distance_metrics(y_train_combined, train_preds)
+    train_metrics = calculate_distance_metrics(y_train_combined, meta_X_train)
     test_metrics = calculate_distance_metrics(y_test_combined, test_preds)
 
     # Print summary
-    logging.info(f"\nSummary:")
-    logging.info(f"- Used models: {list(enabled_models.keys())}")
-    logging.info(f"- Meta features: {meta_X_train.shape[1]}")
-    logging.info(f"- Meta model train median distance: {train_metrics['median_distance']:.2f} km")
-    logging.info(f"- Meta model test median distance: {test_metrics['median_distance']:.2f} km")
-    logging.info(f"- Meta model train mean distance: {train_metrics['mean_distance']:.2f} km")
-    logging.info(f"- Meta model test mean distance: {test_metrics['mean_distance']:.2f} km")
-    logging.info(f"- Meta model test 95th percentile: {test_metrics['percentile_95']:.2f} km")
+    print(f"\nSummary:")
+    print(f"- Used model: {best_model}")
+    print(f"- Meta model train median distance: {train_metrics['median_distance']:.2f} km")
+    print(f"- Meta model test median distance: {test_metrics['median_distance']:.2f} km")
+    print(f"- Meta model train mean distance: {train_metrics['mean_distance']:.2f} km")
+    print(f"- Meta model test mean distance: {test_metrics['mean_distance']:.2f} km")
+    print(f"- Meta model test 95th percentile: {test_metrics['percentile_95']:.2f} km")
 
     return {
-        'meta_lat_model': meta_lat_model,
-        'meta_lon_model': meta_lon_model,
-        'meta_X_train': meta_X_train,
-        'meta_X_test': meta_X_test,
-        'train_preds': train_preds,
         'test_preds': test_preds,
         'train_metrics': train_metrics,
         'test_metrics': test_metrics,
-        'individual_results': test_results,
-        'enabled_models': list(enabled_models.keys())
+        'enabled_models': [best_model]
     }
 
 # Process data
@@ -781,6 +817,13 @@ y_train_lon, y_test_lon = split_data['y_lon_train'], split_data['y_lon_test']
 # Train and test for co-ordinates
 y_train_coords, y_test_coords = split_data['y_coords_train'],  split_data['y_coords_test']
 
+# Set device for GrowNet
+grownet_device = "cuda" if torch.cuda.is_available() else "cpu"
+
+# Set device for neural networks
+nn_device = "cuda" if torch.cuda.is_available() else "cpu"
+print(f"Using device for neural networks: {nn_device}")
+
 # Continent layer
 continent_model, meta_X_train_cont, meta_X_test_cont, cont_train_preds, cont_test_preds = train_hierarchical_layer(
     X_train=X_train_cont,
@@ -788,13 +831,15 @@ continent_model, meta_X_train_cont, meta_X_test_cont, cont_train_preds, cont_tes
     y_train=y_train_cont,
     y_test=y_test_cont,
     run_xgboost_classifier=run_xgboost_classifier,
-    run_grownet_classifier=None,
+    run_grownet_classifier=None, #lambda *args, **kwargs: run_grownet_classifier(*args, **kwargs, device=grownet_device),
     run_nn_classifier=None,
     run_tabpfn_classifier=None,
-    run_lightgbm_classifier=None,
+    run_lightgbm_classifier=run_lightgbm_classifier,
     run_catboost_classifier=None,
     tune_hyperparams=False,
-    apply_smote=True,n_splits=5
+    apply_smote=True,
+    n_splits=5,
+    accuracy_threshold=0.93  # 91% for continent
 )
 
 # City layer 
@@ -808,11 +853,14 @@ city_model, meta_X_train_city, meta_X_test_city, city_train_preds, city_test_pre
     y_test=y_test_city,
     run_xgboost_classifier=run_xgboost_classifier,
     run_grownet_classifier=None,
-    run_lightgbm_classifier=None,
+    run_lightgbm_classifier=run_lightgbm_classifier,
     run_catboost_classifier=None,
     run_nn_classifier=None,
-    run_tabpfn_classifier=None,tune_hyperparams=False,
-    apply_smote=False,n_splits=5
+    run_tabpfn_classifier=None,
+    tune_hyperparams=False,
+    apply_smote=False,
+    n_splits=5,
+    accuracy_threshold=0.91  # 89% for city
 )
 
 # Coordinate layer
@@ -832,12 +880,14 @@ coords_results = train_hierarchical_coordinate_layer(
     y_test_coords=y_test_coords,
     coord_scaler=processed_data['encoders']['coord'],
     run_xgboost_regressor=run_xgboost_regressor,
-    run_tabpfn_regressor=None,
-    run_nn_regressor=None,
-    run_grownet_regressor=None,
-    run_lightgbm_regressor=None,
-    run_catboost_regressor=None,
-    tune_hyperparams=False,n_splits=5
+    run_tabpfn_regressor=run_tabpfn_regressor,
+    run_nn_regressor=lambda *a, **k: run_nn_regressor(*a, **k, device=nn_device),
+    run_grownet_regressor=None, #lambda *a, **k: run_grownet_regressor(*a, **k, device=grownet_device),
+    run_lightgbm_regressor=run_lightgbm_regressor,
+    run_catboost_regressor=run_catboost_regressor,
+    tune_hyperparams=False,
+    n_splits=5,
+    use_best_model_by_distance=True  # Use the best model by median distance error
 )
 
 

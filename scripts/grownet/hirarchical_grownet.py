@@ -221,23 +221,6 @@ class HierarchicalDynamicNet(nn.Module):
         final_coords = self.c0_coords + self.boost_rate * coord_pred
         
         return middle_feat_cum, final_continent, final_city, final_coords
-    
-
-class FeatureAttention(nn.Module):
-    def __init__(self, input_dim):
-        super(FeatureAttention, self).__init__()
-        self.attn = nn.Sequential(
-            nn.Linear(input_dim, 128),
-            nn.Tanh(),
-            nn.Linear(128, input_dim)  # outputs one score per feature
-        )
-
-    def forward(self, x):
-        # x shape: [batch_size, input_dim]
-        attn_scores = self.attn(x)  # [batch_size, input_dim]
-        attn_weights = torch.softmax(attn_scores, dim=1)  # normalize across features
-        return x * attn_weights  # Element-wise weighting per feature
-
 
 
 # Enhanced MLP for hierarchical prediction
@@ -245,18 +228,12 @@ class HierarchicalMLP(nn.Module):
     def __init__(self, dim_in, dim_hidden1, dim_hidden2, n_continents, n_cities, coord_dim):
         super(HierarchicalMLP, self).__init__()
         self.bn = nn.BatchNorm1d(dim_in)
-        self.attn = FeatureAttention(dim_in)
         
-        # Shared feature extraction
-        self.feature_extractor = nn.Sequential(
-            nn.Dropout(0.2),
-            nn.Linear(dim_in, dim_hidden1),
-            nn.ReLU(),
-            nn.BatchNorm1d(dim_hidden1),
-            nn.Dropout(0.4),
-            nn.Linear(dim_hidden1, dim_hidden2),
-            nn.ReLU()
-        )
+        self.hidden1 = nn.Linear(dim_in, dim_hidden1)
+        self.hidden2 = nn.Linear(dim_hidden1, dim_hidden2)
+        self.relu = nn.ReLU()
+        self.dropout1 = nn.Dropout(0.2)
+        self.dropout2 = nn.Dropout(0.4)
         
         # Continent head
         self.continent_head = nn.Linear(dim_hidden2, n_continents)
@@ -270,26 +247,28 @@ class HierarchicalMLP(nn.Module):
     def forward(self, x, lower_f):
         if lower_f is not None:
             x = torch.cat([x, lower_f], dim=1)
-            x = self.attn(x)
-            x = self.bn(x)
-        
-        # Extract shared features
-        shared_features = self.feature_extractor(x)
+        x = self.bn(x)
+        x = self.dropout1(x)
+        x = self.hidden1(x)
+        x = self.relu(x)
+        x = self.dropout2(x)
+        x = self.hidden2(x)
+        x = self.relu(x)
         
         # Continent prediction
-        continent_out = self.continent_head(shared_features)
+        continent_out = self.continent_head(x)
         continent_probs = torch.softmax(continent_out, dim=1)
         
         # City prediction (augmented with continent)
-        city_input = torch.cat([shared_features, continent_probs], dim=1)
+        city_input = torch.cat([x, continent_probs], dim=1)
         city_out = self.city_head(city_input)
         city_probs = torch.softmax(city_out, dim=1)
         
         # Coordinate prediction (augmented with continent and city)
-        coord_input = torch.cat([shared_features, continent_probs, city_probs], dim=1)
+        coord_input = torch.cat([x, continent_probs, city_probs], dim=1)
         coord_out = self.coord_head(coord_input)
         
-        return shared_features, continent_out, city_out, coord_out
+        return x, continent_out, city_out, coord_out
 
     @classmethod
     def get_model(cls, stage, params):
@@ -312,29 +291,11 @@ def get_optim(params, lr, weight_decay):
     optimizer = optim.Adam(params, lr, weight_decay=weight_decay)
     return optimizer
 
-def haversine_loss(coord_pred, coord_true):
-    """
-    Computes angular distance (in radians) between predicted and true 3D unit vectors.
-    Inputs must be normalized unit vectors (x, y, z).
-    """
-    # Normalize vectors just to be safe
-    coord_pred = F.normalize(coord_pred, dim=1)
-    coord_true = F.normalize(coord_true, dim=1)
-
-    # Dot product and clamp to avoid NaNs due to numerical issues
-    dot_product = torch.sum(coord_pred * coord_true, dim=1)
-    dot_product = torch.clamp(dot_product, -1.0, 1.0)
-    
-    # Compute angle between vectors
-    angle = torch.acos(dot_product)  # in radians
-    return angle.mean()
-
 
 def compute_hierarchical_loss(continent_pred, city_pred, coord_pred, 
                               continent_target, city_target, coord_target, 
-                              log_sigma_cont, log_sigma_city, log_sigma_coord,
                               continent_class_weights=None, city_class_weights=None,
-                              use_geo_loss=params['use_geo_loss'], geo_loss_weight=params['geo_loss_weight']):
+                              continent_loss_weight=1.0, city_loss_weight=1.0, coord_loss_weight=1.0):
     
     continent_loss = F.cross_entropy(continent_pred, torch.argmax(continent_target, dim=1),
                                      weight=continent_class_weights)
@@ -342,23 +303,17 @@ def compute_hierarchical_loss(continent_pred, city_pred, coord_pred,
                                 weight=city_class_weights)
     coord_loss = F.mse_loss(coord_pred, coord_target)
 
-    # Optional spherical regularizer
-    if use_geo_loss:
-        geo_loss = haversine_loss(coord_pred, coord_target)
-        coord_loss = coord_loss + geo_loss_weight * geo_loss
-    
     total_loss = (
-        0.5 * torch.exp(-log_sigma_cont) * continent_loss + 0.5 * log_sigma_cont +
-        0.5 * torch.exp(-log_sigma_city) * city_loss + 0.5 * log_sigma_city +
-        0.5 * torch.exp(-log_sigma_coord) * coord_loss + 0.5 * log_sigma_coord
+        continent_loss_weight * continent_loss +
+        city_loss_weight * city_loss +
+        coord_loss_weight * coord_loss
     )
     
     return total_loss, continent_loss, city_loss, coord_loss
 
 
-
-
-def evaluate_hierarchical_model(net_ensemble, test_loader,continent_class_weights_tensor,city_class_weights_tensor):
+def evaluate_hierarchical_model(net_ensemble, test_loader,continent_class_weights_tensor,city_class_weights_tensor,
+                               continent_loss_weight=1.0, city_loss_weight=1.0, coord_loss_weight=1.0):
     """Evaluate the hierarchical model on all tasks"""
     net_ensemble.to_eval()
     
@@ -383,14 +338,16 @@ def evaluate_hierarchical_model(net_ensemble, test_loader,continent_class_weight
             
             continent_pred, city_pred, coord_pred = net_ensemble.forward(x)
             
-            # Compute losses using learnable uncertainty parameters
+            # Compute losses using weights - removed log_sigma parameters
             total_loss, cont_loss, city_loss, coord_loss = compute_hierarchical_loss(
-            continent_pred, city_pred, coord_pred,
-            continent_target, city_target, coord_target,
-            net_ensemble.log_sigma_cont, net_ensemble.log_sigma_city, net_ensemble.log_sigma_coord,
-            continent_class_weights=continent_class_weights_tensor,
-            city_class_weights=city_class_weights_tensor, use_geo_loss=params['use_geo_loss'], geo_loss_weight=params['geo_loss_weight'])
-
+                continent_pred, city_pred, coord_pred,
+                continent_target, city_target, coord_target,
+                continent_class_weights=continent_class_weights_tensor,
+                city_class_weights=city_class_weights_tensor,
+                continent_loss_weight=continent_loss_weight,
+                city_loss_weight=city_loss_weight,
+                coord_loss_weight=coord_loss_weight
+            )
             
             continent_losses.append(cont_loss.item())
             city_losses.append(city_loss.item())
@@ -487,8 +444,17 @@ def train_hierarchical_grownet(x_data, continent_targets, city_targets, coord_ta
     early_stop = 0
     lr = params["lr"]
     
+    continent_loss_weight = params.get("continent_loss_weight", 2.0)
+    city_loss_weight = params.get("city_loss_weight", 1.0)
+    coord_loss_weight = params.get("coord_loss_weight", 0.5)
+    
     # Initial evaluation
-    initial_metrics = evaluate_hierarchical_model(net_ensemble, val_loader, continent_class_weight_tensor,city_class_weights_tensor)
+    initial_metrics = evaluate_hierarchical_model(
+        net_ensemble, val_loader, continent_class_weight_tensor, city_class_weights_tensor,
+        continent_loss_weight=continent_loss_weight,
+        city_loss_weight=city_loss_weight,
+        coord_loss_weight=coord_loss_weight
+    )
     print(f"Initial - Continent Acc: {initial_metrics['continent_acc']:.3f}, "
           f"City Acc: {initial_metrics['city_acc']:.3f}, "
           f"Coord MSE: {initial_metrics['coord_mse']:.5f}")
@@ -545,13 +511,15 @@ def train_hierarchical_grownet(x_data, continent_targets, city_targets, coord_ta
                 
                 coord_loss = loss_stagewise(net_ensemble.boost_rate * coord_out, coord_grad).mean()
                 
-                # Use learnable uncertainty for combining losses
+                # Use weighted sum for total loss - removed log_sigma parameters
                 total_loss, _, _, _ = compute_hierarchical_loss(
                     continent_out, city_out, coord_out,
                     continent_target, city_target, coord_target,
-                    net_ensemble.log_sigma_cont, net_ensemble.log_sigma_city, net_ensemble.log_sigma_coord,
-                    continent_class_weights=continent_class_weight_tensor,city_class_weights=city_class_weights_tensor,
-                    use_geo_loss=params['use_geo_loss'], geo_loss_weight=params['geo_loss_weight']
+                    continent_class_weights=continent_class_weight_tensor,
+                    city_class_weights=city_class_weights_tensor,
+                    continent_loss_weight=continent_loss_weight,
+                    city_loss_weight=city_loss_weight,
+                    coord_loss_weight=coord_loss_weight
                 )
                 
                 model.zero_grad()
@@ -592,16 +560,15 @@ def train_hierarchical_grownet(x_data, continent_targets, city_targets, coord_ta
                     
                     middle_feat, continent_pred, city_pred, coord_pred = net_ensemble.forward_grad(x)
                     
-                    total_loss, _, _, _ = compute_hierarchical_loss(continent_pred, city_pred, coord_pred,
-                                                                    continent_target, city_target, coord_target,
-                                                                    net_ensemble.log_sigma_cont,
-                                                                    net_ensemble.log_sigma_city,
-                                                                    net_ensemble.log_sigma_coord,
-                                                                    continent_class_weights=continent_class_weight_tensor,
-                                                                    city_class_weights=city_class_weights_tensor,
-                                                                    use_geo_loss=params['use_geo_loss'],
-                                                                    geo_loss_weight=params['geo_loss_weight']
-                                                                )
+                    total_loss, _, _, _ = compute_hierarchical_loss(
+                        continent_pred, city_pred, coord_pred,
+                        continent_target, city_target, coord_target,
+                        continent_class_weights=continent_class_weight_tensor,
+                        city_class_weights=city_class_weights_tensor,
+                        continent_loss_weight=continent_loss_weight,
+                        city_loss_weight=city_loss_weight,
+                        coord_loss_weight=coord_loss_weight
+                    )
                     
                     corrective_optimizer.zero_grad()
                     uncertainty_optimizer.zero_grad()
@@ -614,7 +581,12 @@ def train_hierarchical_grownet(x_data, continent_targets, city_targets, coord_ta
             print(f"Corrective step avg loss: {np.mean(corrective_losses):.5f}")
         
         # Validation
-        val_metrics = evaluate_hierarchical_model(net_ensemble, val_loader, continent_class_weight_tensor,city_class_weights_tensor)
+        val_metrics = evaluate_hierarchical_model(
+            net_ensemble, val_loader, continent_class_weight_tensor, city_class_weights_tensor,
+            continent_loss_weight=continent_loss_weight,
+            city_loss_weight=city_loss_weight,
+            coord_loss_weight=coord_loss_weight
+        )
         val_loss = val_metrics['continent_loss'] + val_metrics['city_loss'] + val_metrics['coord_loss']
         
         print(f"Validation - Continent Acc: {val_metrics['continent_acc']:.3f}, "
@@ -635,7 +607,12 @@ def train_hierarchical_grownet(x_data, continent_targets, city_targets, coord_ta
     print(f"\nBest model was at stage {best_stage+1} with Val Loss: {best_val_loss:.5f}")
     
     # Final evaluation on test set
-    test_metrics = evaluate_hierarchical_model(net_ensemble, test_loader, continent_class_weight_tensor,city_class_weights_tensor)
+    test_metrics = evaluate_hierarchical_model(
+        net_ensemble, test_loader, continent_class_weight_tensor, city_class_weights_tensor,
+        continent_loss_weight=continent_loss_weight,
+        city_loss_weight=city_loss_weight,
+        coord_loss_weight=coord_loss_weight
+    )
     print(f"\nFinal Test Results:")
     print(f"Continent Accuracy: {test_metrics['continent_acc']:.3f}")
     print(f"City Accuracy: {test_metrics['city_acc']:.3f}")
@@ -668,6 +645,9 @@ class HierarchicalGrowNetTuner:
             "weight_decay": trial.suggest_loguniform("weight_decay", 1e-6, 1e-3),
             "epochs_per_stage": trial.suggest_int("epochs_per_stage", 5, 10),
             "gradient_clip": trial.suggest_float("gradient_clip", 0.5, 2.0),
+            "continent_loss_weight": trial.suggest_float("continent_loss_weight", 1.5, 3.0),
+            "city_loss_weight": trial.suggest_float("city_loss_weight", 1.0, 1.49),
+            "coord_loss_weight": trial.suggest_float("coord_loss_weight", 0.1, 0.99),
         })
         # Use a fixed split for validation
         X_train, X_val, cont_train, cont_val, city_train, city_val, coord_train, coord_val = train_test_split(
@@ -898,9 +878,3 @@ def error_calc_hierarchical_grownet(metrics, continent_encoder, city_encoder, co
 print("\n--- Hierarchical GrowNet Error Analysis ---")
 error_calc_hierarchical_grownet(metrics, continent_encoder, city_encoder, coordinate_encoder)
 
-"""
-Final Test Results:
-Continent Accuracy: 0.834
-City Accuracy: 0.655
-Coordinate MSE: 0.31438
-"""

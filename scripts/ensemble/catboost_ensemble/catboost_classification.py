@@ -7,7 +7,7 @@ from sklearn.metrics import accuracy_score, classification_report
 import warnings
 warnings.filterwarnings('ignore')
 
-class CatBoostTuner:
+class CatBoostClassifierOptimizer:
     def __init__(self, X_train, y_train, X_test, y_test, random_state=42, n_trials=20, timeout=1200, cat_features=None):
         self.X_train = X_train
         self.y_train = y_train
@@ -79,8 +79,10 @@ class CatBoostTuner:
 def run_catboost_classifier(X_train, y_train, X_test, y_test, 
                            tune_hyperparams=False, random_state=42, 
                            n_trials=20, timeout=1200, params=None):
-    
-    tuner = CatBoostTuner(X_train, y_train, X_test, y_test, 
+    """
+    CatBoost classification wrapper for ensemble.
+    """
+    tuner = CatBoostClassifierOptimizer(X_train, y_train, X_test, y_test, 
                          random_state=random_state, n_trials=n_trials,timeout=timeout,cat_features=None)
 
     if tune_hyperparams:

@@ -28,7 +28,7 @@ import warnings
 warnings.filterwarnings('ignore')
 
 
-def default_params():
+def default_classification_params():
     return {
         "input_dim": 200,
         "hidden_dim": [128, 64],
@@ -48,7 +48,7 @@ def default_params():
     }
 
 
-class NNTuner:
+class NNClassificationTuner:
     def __init__(self, X_train, y_train, X_val=None, y_val=None, params=None, device="cpu", n_trials=20, timeout=1200):
         self.X_train = X_train
         self.y_train = y_train
@@ -107,7 +107,7 @@ device = "cuda" if torch.cuda.is_available() else "cpu"
 print(f"Using device: {device}")
 
 # Dataset class for classification
-class TrainDataset(Dataset):
+class ClassificationTrainDataset(Dataset):
     def __init__(self, features, n_targets):
         self.features = features
         self.n_targets = n_targets
@@ -210,9 +210,9 @@ class ClassificationNeuralNetwork(nn.Module):
 
 
 class NNClassifier:
-    def __init__(self, params=None, device = "cpu"):
+    def __init__(self, params=None, device="cpu"):
         if params is None:
-            self.params = default_params()
+            self.params = default_classification_params()
         else:
             self.params = params
         self.device = device
@@ -220,7 +220,7 @@ class NNClassifier:
         self.class_weight_tensor = None
         self.best_model_state = None
     
-    def fit(self, X_train, y_train, X_val=None,y_val=None):
+    def fit(self, X_train, y_train, X_val=None, y_val=None):
         """ Train the model"""
         print("Fit the model...")
 
@@ -229,18 +229,18 @@ class NNClassifier:
         self.params['output_dim'] = len(np.unique(y_train))
 
 
-        # Compute the calss weights
+        # Compute the class weights
         class_weights = compute_class_weight(class_weight="balanced",classes=np.unique(y_train),y=y_train)
-        self.class_weight_tensor = torch.tensor(class_weights,dtype=torch.float32).to(device)
+        self.class_weight_tensor = torch.tensor(class_weights,dtype=torch.float32).to(self.device)
 
-        # Splut is validation is not given
+        # Split if validation is not given
         if X_val is None or y_val is None:
             X_train, X_val, y_train, y_val = train_test_split(X_train,y_train, test_size=self.params['val_split'],
                                                               random_state=self.params['random_state'], stratify=y_train)
         
         # Create datasets and dataloaders
-        train_dataset = TrainDataset(X_train,y_train)
-        val_dataset = TrainDataset(X_val,y_val)
+        train_dataset = ClassificationTrainDataset(X_train,y_train)
+        val_dataset = ClassificationTrainDataset(X_val,y_val)
 
         train_loader = DataLoader(train_dataset,batch_size=self.params['batch_size'],shuffle=True)
         val_loader = DataLoader(val_dataset,batch_size=self.params['batch_size'],shuffle=False)
@@ -248,7 +248,7 @@ class NNClassifier:
         print(f"Train size {len(train_dataset)}, Val size {len(val_dataset)}")
         
 
-        # Initailiaze model
+        # Initialize model
         self.model = ClassificationNeuralNetwork(
             input_dim=self.params['input_dim'],
             output_dim=self.params['output_dim'],
@@ -257,7 +257,7 @@ class NNClassifier:
             initial_dropout=self.params['initial_dropout'],
             final_dropout=self.params['final_dropout'],
             random_state=self.params['random_state']
-        ).to(device)
+        ).to(self.device)
 
         # Loss function and evaluation for classification
         criterion_classification = nn.CrossEntropyLoss(weight=self.class_weight_tensor)
@@ -280,8 +280,8 @@ class NNClassifier:
             train_total = 0
 
             for batch in train_loader:
-                features = batch['x'].to(device)
-                targets = batch['n_classes'].to(device)
+                features = batch['x'].to(self.device)
+                targets = batch['n_classes'].to(self.device)
 
                 # Set optimizer
                 optimizer.zero_grad()
@@ -320,8 +320,8 @@ class NNClassifier:
 
             with torch.no_grad():
                 for batch in val_loader:
-                    features = batch['x'].to(device)
-                    targets = batch['n_classes'].to(device)
+                    features = batch['x'].to(self.device)
+                    targets = batch['n_classes'].to(self.device)
 
                     preds = self.model(features)
 
@@ -345,7 +345,7 @@ class NNClassifier:
 
 
             if epoch % 10 == 0:
-                print(f'Epoch [{epoch}/{self.params['epochs']}], '
+                print(f'Epoch [{epoch}/{self.params["epochs"]}], '
                       f'Train Loss: {train_loss:.4f}, Train Acc: {train_accuracy:.2f}%, '
                       f'Val Loss: {val_loss:.4f}, Val Acc: {val_accuracy:.2f}%')
 
@@ -363,10 +363,9 @@ class NNClassifier:
 
         print(f"Training completed. Best validation loss: {best_val_loss:.4f}")
 
-    def evaluate(self,X,y):
+    def evaluate(self, X, y):
         """
         Evaluate the model
-        
         """
 
         self.model.eval()
@@ -375,15 +374,15 @@ class NNClassifier:
         class_lossses = []
         all_preds_prob = []
 
-        dataset = TrainDataset(X,y)
-        loader = DataLoader(dataset,batch_size=self.params['batch_size'],shuffle=False)
+        dataset = ClassificationTrainDataset(X, y)
+        loader = DataLoader(dataset, batch_size=self.params['batch_size'], shuffle=False)
 
         criterion = nn.CrossEntropyLoss(weight=self.class_weight_tensor)
 
         with torch.no_grad():
             for batch in loader:
-                features = batch['x'].to(device)
-                targets = batch['n_classes'].to(device)
+                features = batch['x'].to(self.device)
+                targets = batch['n_classes'].to(self.device)
 
                 preds = self.model(features)
                 loss = criterion(preds,targets)
@@ -416,7 +415,7 @@ class NNClassifier:
         
         # Create dummy targets for dataset
         dummy_targets = np.zeros(X.shape[0])
-        dataset = TrainDataset(X, dummy_targets)
+        dataset = ClassificationTrainDataset(X, dummy_targets)
         loader = DataLoader(dataset, batch_size=self.params['batch_size'], shuffle=False)
         
         with torch.no_grad():
@@ -438,46 +437,54 @@ class NNClassifier:
         }
     
 
-def run_nn_classifier(X_train,y_train, X_test,y_test,device="cuda",
-                      tune_hyperparams=False,params=None,
-                          n_trials=20,timeout=1200):
-        # Use default if params not given
-        if params is None:
-            params = default_params()
-        else:
-            default = default_params()
-            default.update(params)
-            params = default
+def run_nn_classifier(X_train, y_train, X_test, y_test, device=None,
+                      tune_hyperparams=False, params=None,
+                      n_trials=20, timeout=1200):
+    """Run the neural network classifier"""
+    
+    # Set device if not provided
+    if device is None:
+        device = "cuda" if torch.cuda.is_available() else "cpu"
+    
+    print(f"Running neural network classifier on device: {device}")
+    
+    # Use default if params not given
+    if params is None:
+        params = default_classification_params()
+    else:
+        default = default_classification_params()
+        default.update(params)
+        params = default
 
-        # Update input dimension based on actual data
-        params['input_dim'] = X_train.shape[1]
-        params['output_dim'] = len(np.unique(y_train))
+    # Update input dimension based on actual data
+    params['input_dim'] = X_train.shape[1]
+    params['output_dim'] = len(np.unique(y_train))
 
         
-        if tune_hyperparams:
-            # Split validation set from training data
-            X_train_split, X_val, y_train_split, y_val = train_test_split(
-                X_train,y_train, test_size=0.2, random_state=42, stratify=y_train
-            )
+    if tune_hyperparams:
+        # Split validation set from training data
+        X_train_split, X_val, y_train_split, y_val = train_test_split(
+            X_train,y_train, test_size=0.2, random_state=42, stratify=y_train
+        )
 
-            tuner = NNTuner(X_train_split, y_train_split, X_val, y_val, 
-                                   params, device=device, n_trials=n_trials, timeout=timeout)
-            best_params, best_score = tuner.tune()
-            params.update(best_params)
-            print("Using best params:", params)
+        tuner = NNClassificationTuner(X_train_split, y_train_split, X_val, y_val, 
+                               params, device=device, n_trials=n_trials, timeout=timeout)
+        best_params, best_score = tuner.tune()
+        params.update(best_params)
+        print("Using best params:", params)
 
-        # Train final model on full training data
-        model = NNClassifier(params, device=device)
-        model.fit(X_train, y_train)
+    # Train final model on full training data
+    model = NNClassifier(params, device=device)
+    model.fit(X_train, y_train)
 
-        results = model.evaluate(X_test, y_test)
-        print("\nClassification Report:")
-        print(classification_report(results['targets'], results['predictions']))
-        print("\nAccuracy:", results['class_accuracy'])
-        return {
-        'model': model,
-        'predictions': results['predictions'],
-        'predicted_probabilities': results['probabilities'],
-        'accuracy': results['class_accuracy'],
-        'params': params
-    }
+    results = model.evaluate(X_test, y_test)
+    print("\nClassification Report:")
+    print(classification_report(results['targets'], results['predictions']))
+    print("\nAccuracy:", results['class_accuracy'])
+    return {
+    'model': model,
+    'predictions': results['predictions'],
+    'predicted_probabilities': results['probabilities'],
+    'accuracy': results['class_accuracy'],
+    'params': params
+}
