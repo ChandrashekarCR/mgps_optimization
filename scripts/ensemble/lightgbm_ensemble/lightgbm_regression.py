@@ -88,30 +88,62 @@ class LightGBMRegressorTuner:
 
 def run_lightgbm_regressor(X_train, y_train, X_test, y_test,
                           tune_hyperparams=False, random_state=42,
-                          n_trials=20, timeout=1200, params=None, verbose=False):
+                          n_trials=20, timeout=1200, params=None, verbose=True):
+    """LightGBM regressor with proper error handling"""
+    
+    try:
+        # Handle multi-dimensional targets
+        if len(y_train.shape) > 1 and y_train.shape[1] > 1:
+            if verbose:
+                print("Warning: LightGBM doesn't support multi-output regression natively. Using first dimension only.")
+            y_train = y_train[:, 0]
+            y_test = y_test[:, 0]
 
-    tuner = LightGBMRegressorTuner(X_train, y_train, X_test, y_test,
-                                  random_state=random_state, n_trials=n_trials, timeout=timeout)
+        tuner = LightGBMRegressorTuner(X_train, y_train, X_test, y_test,
+                                      random_state=random_state, n_trials=n_trials, timeout=timeout)
 
-    if tune_hyperparams:
-        best_params = tuner.tune()
+        if tune_hyperparams:
+            best_params = tuner.tune()
+            if verbose:
+                print("Using tuned parameters:", best_params)
+        else:
+            best_params = tuner.default_params()
+            if params:
+                best_params.update(params)
+            if verbose:
+                print("Using default (or custom) parameters:", best_params)
+
+        model = tuner.train(best_params)
+        preds, mae, r2 = tuner.evaluate(model) if verbose else (model.predict(X_test), None, None)
+
+        # Calculate additional metrics if not verbose
+        if not verbose:
+            mae = mean_absolute_error(y_test, preds)
+            r2 = r2_score(y_test, preds)
+
+        return {
+            'model': model,
+            'predictions': preds,
+            'mae': mae,
+            'r2_score': r2,  # Use r2_score for consistency
+            'params': best_params,
+            'skipped': False
+        }
+        
+    except Exception as e:
         if verbose:
-            print("Using tuned parameters:", best_params)
-    else:
-        best_params = tuner.default_params()
-        if params:
-            best_params.update(params)
-        if verbose:
-            print("Using default (or custom) parameters:", best_params)
-
-    model = tuner.train(best_params)
-    preds, mae, r2 = tuner.evaluate(model)
-
-    return {
-        'model': model,
-        'predictions': preds,
-        'mae': mae,
-        'r2': r2,
-        'params': best_params
-    }
+            print(f"Error in LightGBM regressor: {e}")
+        # Return dummy predictions on error
+        n_samples = X_test.shape[0]
+        dummy_preds = np.zeros(n_samples)
+        
+        return {
+            'model': None,
+            'predictions': dummy_preds,
+            'mae': float('inf'),
+            'r2_score': -float('inf'),
+            'params': params,
+            'skipped': True,
+            'error': str(e)
+        }
 

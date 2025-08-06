@@ -344,35 +344,76 @@ class GrowNetRegressorUnique:
         return all_preds
     
 def run_grownet_regressor(X_train, y_train, X_test, y_test, params=None,
-                          tune_hyperparams=False, n_trials=20, timeout=1200, device=None):
-    if device is None:
-        device = "cuda" if torch.cuda.is_available() else "cpu"
-    if params is None:
-        params = grownet_regression_default_params()
-    else:
-        default = grownet_regression_default_params()
-        default.update(params)
-        params = default
-    params['feat_d'] = X_train.shape[1]
-    if tune_hyperparams:
-        X_train_split, X_val, y_train_split, y_val = train_test_split(
-            X_train, y_train, test_size=0.2, random_state=42
-        )
-        tuner = GrowNetRegressionTuner(X_train_split, y_train_split, X_val, y_val, params, device=device, n_trials=n_trials, timeout=timeout)
-        best_params, best_score = tuner.tune()
-        params.update(best_params)
-        print("Using best params:", params)
-    model = GrowNetRegressorUnique(params, device=device)
-    model.fit(X_train, y_train)
-    results = model.evaluate(X_test, y_test)
-    print("\nRegression Report:")
-    print(f"RMSE: {results['rmse']:.4f}")
-    print(f"R2 Score: {results['r2']:.4f}")
-    return {
-        'model': model,
-        'predictions': results['predictions'],
-        'rmse': results['rmse'],
-        'r2': results['r2'],
-        'params': params
-    }
+                          tune_hyperparams=False, n_trials=20, timeout=1200, 
+                          device=None, verbose=True):
+    """Run GrowNet regressor with proper error handling and interface consistency"""
+    
+    try:
+        if device is None:
+            device = "cuda" if torch.cuda.is_available() else "cpu"
+            
+        if verbose:
+            print(f"Running GrowNet regressor on device: {device}")
+            
+        if params is None:
+            params = grownet_regression_default_params()
+        else:
+            default = grownet_regression_default_params()
+            default.update(params)
+            params = default
+            
+        # Handle both 1D and multi-dimensional targets
+        if len(y_train.shape) == 1:
+            y_train = y_train.reshape(-1, 1)
+            y_test = y_test.reshape(-1, 1)
+            
+        params['feat_d'] = X_train.shape[1]
+        params['n_outputs'] = y_train.shape[1]
+        
+        if tune_hyperparams:
+            X_train_split, X_val, y_train_split, y_val = train_test_split(
+                X_train, y_train, test_size=0.2, random_state=42
+            )
+            tuner = GrowNetRegressionTuner(X_train_split, y_train_split, X_val, y_val, 
+                                         params, device=device, n_trials=n_trials, timeout=timeout)
+            best_params, best_score = tuner.tune()
+            params.update(best_params)
+            if verbose:
+                print("Using best params:", params)
+                
+        model = GrowNetRegressorUnique(params, device=device)
+        model.fit(X_train, y_train)
+        results = model.evaluate(X_test, y_test)
+        
+        if verbose:
+            print("\nRegression Report:")
+            print(f"RMSE: {results['rmse']:.4f}")
+            print(f"R2 Score: {results['r2']:.4f}")
+            
+        return {
+            'model': model,
+            'predictions': results['predictions'],
+            'rmse': results['rmse'],
+            'r2_score': results['r2'],  # Use r2_score for consistency
+            'params': params,
+            'skipped': False
+        }
+        
+    except Exception as e:
+        if verbose:
+            print(f"Error in GrowNet regressor: {e}")
+        # Return dummy predictions on error
+        n_samples = X_test.shape[0]
+        output_dim = y_train.shape[1] if len(y_train.shape) > 1 else 1
+        dummy_preds = np.zeros((n_samples, output_dim))
+        
+        return {
+            'model': None,
+            'predictions': dummy_preds,
+            'rmse': float('inf'),
+            'r2_score': -float('inf'),
+            'params': params,
+            'skipped': True,
+            'error': str(e)
+        }
 

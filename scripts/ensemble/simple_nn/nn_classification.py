@@ -437,16 +437,16 @@ class NNClassifier:
         }
     
 
-def run_nn_classifier(X_train, y_train, X_test, y_test, device=None,
+def run_nn_classifier(X_train, y_train, X_test, y_test,
                       tune_hyperparams=False, params=None,
-                      n_trials=20, timeout=1200):
+                      n_trials=20, timeout=1200, verbose=False):
     """Run the neural network classifier"""
     
-    # Set device if not provided
-    if device is None:
-        device = "cuda" if torch.cuda.is_available() else "cpu"
+    # Handle device detection internally
+    device = "cuda" if torch.cuda.is_available() else "cpu"
     
-    print(f"Running neural network classifier on device: {device}")
+    if verbose:
+        print(f"Running neural network classifier on device: {device}")
     
     # Use default if params not given
     if params is None:
@@ -471,20 +471,23 @@ def run_nn_classifier(X_train, y_train, X_test, y_test, device=None,
                                params, device=device, n_trials=n_trials, timeout=timeout)
         best_params, best_score = tuner.tune()
         params.update(best_params)
-        print("Using best params:", params)
+        if verbose:
+            print("Using best params:", params)
 
     # Train final model on full training data
     model = NNClassifier(params, device=device)
     model.fit(X_train, y_train)
 
     results = model.evaluate(X_test, y_test)
-    print("\nClassification Report:")
-    print(classification_report(results['targets'], results['predictions']))
-    print("\nAccuracy:", results['class_accuracy'])
+    if verbose:
+        print("\nClassification Report:")
+        print(classification_report(results['targets'], results['predictions']))
+        print("\nAccuracy:", results['class_accuracy'])
+    
     return {
-    'model': model,
-    'predictions': results['predictions'],
-    'predicted_probabilities': results['probabilities'],
-    'accuracy': results['class_accuracy'],
-    'params': params
-}
+        'model': model,
+        'predictions': results['predictions'],
+        'predicted_probabilities': results['probabilities'],
+        'accuracy': results['class_accuracy'],
+        'params': params
+    }

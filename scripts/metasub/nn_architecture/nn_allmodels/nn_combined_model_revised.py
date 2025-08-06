@@ -543,6 +543,35 @@ if __name__ == "__main__":
     print(f"Mean distance error: {np.mean(coord_errors):.2f} km")
     print(f"Max distance error: {np.max(coord_errors):.2f} km")
 
+    # --- Expected Error Calculation ---
+    # Group by correctness of continent/city predictions
+    continent_correct = results['continent_true'] == results['continent_preds']
+    city_correct = results['city_true'] == results['city_preds']
+    error_group = np.array([
+        'C_correct Z_correct' if c and z else
+        'C_correct Z_wrong' if c and not z else
+        'C_wrong Z_correct' if not c and z else
+        'C_wrong Z_wrong'
+        for c, z in zip(continent_correct, city_correct)
+    ])
+    # Build DataFrame for error analysis
+    error_df = pd.DataFrame({
+        'coord_error': coord_errors,
+        'error_group': error_group
+    })
+    group_stats = error_df.groupby('error_group')['coord_error'].agg([
+        ('count', 'count'),
+        ('mean_error_km', 'mean'),
+        ('median_error_km', 'median')
+    ])
+    total = len(error_df)
+    group_stats['proportion'] = group_stats['count'] / total
+    group_stats['weighted_error'] = group_stats['mean_error_km'] * group_stats['proportion']
+    expected_total_error = group_stats['weighted_error'].sum()
+    print("\n===== Expected Coordinate Error by Group =====")
+    print(group_stats)
+    print(f"Expected Coordinate Error E[D]: {expected_total_error:.2f} km")
+
     # In-radius metrics
     metrics = compute_in_radius_metrics(true_latlon, pred_latlon)
     print("\nIn-Radius Accuracy Metrics:")

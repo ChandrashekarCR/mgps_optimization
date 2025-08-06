@@ -410,10 +410,10 @@ class GrowNetClassifierUnique:
         }
     
 def run_grownet_classifier(X_train,y_train,X_test,y_test,params=None,
-                tune_hyperparams = False, n_trials=20,timeout=1200,device=None):
-    # Use default device if not provided
-    if device is None:
-        device = "cuda" if torch.cuda.is_available() else "cpu"
+                tune_hyperparams = False, n_trials=20,timeout=1200, verbose=False):
+    # Handle device detection internally
+    device = "cuda" if torch.cuda.is_available() else "cpu"
+    
     # Use default if params not given
     if params is None:
         params = grownet_classification_default_params()
@@ -429,16 +429,19 @@ def run_grownet_classifier(X_train,y_train,X_test,y_test,params=None,
         tuner = GrowNetClassificationTuner(X_train_split,y_train_split,X_val,y_val,params,device=device,n_trials=n_trials,timeout=timeout)
         best_params, best_score = tuner.tune()
         params.update(best_params)
-        print("Using best params:", params)
+        if verbose:
+            print("Using best params:", params)
     
     # Train final model on full training data
     model = GrowNetClassifierUnique(params,device=device)
     model.fit(X_train,y_train)
     
     results = model.evaluate(X_test,y_test)
-    print("\nClassification Report:")
-    print(classification_report(results['targets'], results['predictions']))
-    print("\nAccuracy:", results['class_accuracy'])
+    if verbose:
+        print("\nClassification Report:")
+        print(classification_report(results['targets'], results['predictions']))
+        print("\nAccuracy:", results['class_accuracy'])
+    
     return {
         'model': model,
         'predictions': results['predictions'],
