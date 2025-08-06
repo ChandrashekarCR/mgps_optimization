@@ -207,47 +207,6 @@ def plot_points_on_world_map(true_lat, true_long, predicted_lat, predicted_long,
     plt.savefig(filename) # Save the plot as an image
     plt.show()
 
-def filter_models_by_accuracy(oof_probs, y_true, accuracy_threshold):
-    """
-    Filter models whose out-of-fold predictions achieve accuracy >= threshold.
-    Args:
-        oof_probs: dict of model_key -> np.ndarray of shape (n_samples, n_classes)
-        y_true: true labels (n_samples,)
-        accuracy_threshold: minimum accuracy required to include model
-    Returns:
-        filtered_oof_probs: dict of model_key -> np.ndarray (only those meeting threshold)
-        passed_models: list of model_keys that passed
-        model_accuracies: dict of model_key -> accuracy
-    """
-    filtered_oof_probs = {}
-    passed_models = []
-    model_accuracies = {}
-    for model_key, probs in oof_probs.items():
-        preds = np.argmax(probs, axis=1)
-        acc = accuracy_score(y_true, preds)
-        model_accuracies[model_key] = acc
-        if acc >= accuracy_threshold:
-            filtered_oof_probs[model_key] = probs
-            passed_models.append(model_key)
-    return filtered_oof_probs, passed_models, model_accuracies
-
-
-# --- NEW: Compute median geodesic error for each model and select the best ---
-def compute_model_median_distance(oof_preds, y_true):
-    """
-    Compute median geodesic (haversine) error for each model.
-    Args:
-        oof_preds: dict of model_key -> np.ndarray (n_samples, 2)
-        y_true: np.ndarray (n_samples, 2)
-    Returns:
-        model_median_errors: dict of model_key -> median error (km)
-    """
-    model_median_errors = {}
-    for model_key, preds in oof_preds.items():
-        distances = haversine_distance(y_true[:, 0], y_true[:, 1], preds[:, 0], preds[:, 1])
-        model_median_errors[model_key] = np.median(distances)
-    return model_median_errors
-
 # Train the ensemble models on classification tasks -> Continent and city classification
 def train_hierarchical_layer(
         X_train,
@@ -266,21 +225,10 @@ def train_hierarchical_layer(
         n_splits=3,
         accuracy_threshold=0.8):
     """
-    Dynamic hierarchical layer that can skip models if they are passed as None.
-    
-       Args:
-        X_train, X_test, y_train, y_test: Training and test data
-        processed_data: Processed data (for reference)
-        run_xgboost_classifier: XGBoost classifier function or None to skip
-        run_grownet_classifier: GrowNet classifier function or None to skip
-        run_nn_classifier: Neural Network classifier function or None to skip
-        run_tabpfn_classifier: TabPFN classifier function or None to skip
-        tune_hyperparams: Whether to tune hyperparameters
-        random_state: Random state for reproducibility
-        n_splits: Number of CV splits
-    
-    Returns:
-        meta_model, meta_X_train, meta_X_test, train_preds, test_preds
+    Efficient single-stage hierarchical layer:
+    1. Run all models with default params in CV to filter AND generate meta-features
+    2. Tune hyperparameters only for filtered models
+    3. Train final ensemble
     """
     
     # Define all possible models with their configurations
@@ -288,32 +236,38 @@ def train_hierarchical_layer(
         'xgb': {
             'name': 'XGBoost',
             'function': run_xgboost_classifier,
-            'enabled': run_xgboost_classifier is not None
+            'enabled': run_xgboost_classifier is not None,
+            'tune_params': {'n_trials': 50, 'timeout': 1800}
         },
         'grownet': {
             'name': 'GrowNet',
             'function': run_grownet_classifier,
-            'enabled': run_grownet_classifier is not None
+            'enabled': run_grownet_classifier is not None,
+            'tune_params': {'n_trials': 50, 'timeout': 1800}
         },
         'nn': {
             'name': 'Neural Network',
             'function': run_nn_classifier,
-            'enabled': run_nn_classifier is not None
+            'enabled': run_nn_classifier is not None,
+            'tune_params': {'n_trials': 50, 'timeout': 1800}
         },
         'tabpfn': {
             'name': 'TabPFN',
             'function': run_tabpfn_classifier,
-            'enabled': run_tabpfn_classifier is not None
+            'enabled': run_tabpfn_classifier is not None,
+            'tune_params': {'max_time_options': [30, 60, 120, 180]}
         },
         'lightgbm': {
             'name': 'LightGBM',
             'function':run_lightgbm_classifier,
-            'enabled':run_lightgbm_classifier is not None
+            'enabled':run_lightgbm_classifier is not None,
+            'tune_params': {'n_trials': 50, 'timeout': 1800}
         },
         'catboost': {
             'name': 'CatBoost',
             'function':run_catboost_classifier,
-            'enabled':run_catboost_classifier is not None
+            'enabled':run_catboost_classifier is not None,
+            'tune_params': {'n_trials': 50, 'timeout': 1800}
         }
     }
     
@@ -325,163 +279,128 @@ def train_hierarchical_layer(
     
     logging.info(f"Enabled models: {list(enabled_models.keys())}")
     
-    # Split the same dataset to tune the hyperparameters for the model but with different random state
-    X_train_hyper, X_test_hyper, y_train_hyper, y_test_hyper = train_test_split(
-        X_train, y_train, test_size=0.2, random_state=101, stratify=y_train
-    )
-
-    # Hyperparameter tuning for enabled models
-    best_params = {}
+    # STAGE 1: Single CV loop to filter models AND generate meta-features
+    logging.info("STAGE 1: Running cross-validation to filter models and generate meta-features...")
     
-    if tune_hyperparams:
-        logging.info("Tuning hyperparameters for the enabled models")
-        
-        for model_key, config in enabled_models.items():
-            logging.info(f"Tuning {config['name']} hyperparameters...")
-            
-            try:
-                if model_key == 'xgb':
-                    result = config['function'](
-                        X_train_hyper,y_train_hyper, X_test_hyper, y_test_hyper,
-                        tune_hyperparams=True, n_trials=50, timeout=1800
-                    )
-                elif model_key == 'grownet':
-                    result = config['function'](
-                        X_train_hyper, y_train_hyper, X_test_hyper, y_test_hyper,
-                        tune_hyperparams=True, n_trials=50, timeout=1800
-                    )
-                elif model_key == 'nn':
-                    result = config['function'](
-                        X_train_hyper, y_train_hyper, X_test_hyper, y_test_hyper,
-                        tune_hyperparams=True, n_trials=50, timeout=1800
-                    )
-                elif model_key == 'tabpfn':
-                    result = config['function'](
-                        X_train_hyper, y_train_hyper, X_test_hyper, y_test_hyper,
-                        tune_hyperparams=True, max_time=300
-                    )
-
-                elif model_key == 'lightgbm':
-                    result = config['function'](
-                        X_train_hyper, y_train_hyper, X_test_hyper, y_test_hyper,
-                        tune_hyperparams=True,n_trials=50, max_time=1800
-                    )
-                
-                elif model_key == 'catboost':
-                    result = config['function'](
-                        X_train_hyper, y_train_hyper, X_test_hyper, y_test_hyper,
-                        tune_hyperparams=True,n_trials=50, max_time=1800
-                    )
-                
-                best_params[model_key] = result['params']
-                logging.info(f"Best {config['name']} params: {best_params[model_key]}")
-                
-            except Exception as e:
-                logging.error(f"Error tuning {config['name']} : {e}")
-                best_params[model_key] = None
-    else:
-        # Initialize all as None
-        best_params = {model_key: None for model_key in enabled_models.keys()}
-
-    # Initialize arrays for storing CV predictions
     skf = StratifiedKFold(n_splits=n_splits, shuffle=True, random_state=random_state)
     n_train_samples = X_train.shape[0]
     n_classes = len(np.unique(y_train))
 
-    # Only create OOF arrays for enabled models
-    oof_probs = {}
-    for model_key in enabled_models.keys():
-        oof_probs[model_key] = np.zeros((n_train_samples, n_classes))
-
-    # Track validation accuracies per model across folds
-    model_val_accuracies = {model_key: [] for model_key in enabled_models.keys()}
-
-    # Cross-validation loop
+    # Track accuracies and out-of-fold predictions
+    model_fold_accuracies = {model_key: [] for model_key in enabled_models.keys()}
+    oof_probs = {model_key: np.zeros((n_train_samples, n_classes)) for model_key in enabled_models.keys()}
+    
     for fold, (train_idx, val_idx) in enumerate(skf.split(X_train, y_train)):
+        logging.info(f"Processing Fold {fold+1}/{n_splits}")
         
-        logging.info(f"\nFold {fold+1}/{n_splits}")
-
-        # Split data for this fold
         X_fold_train, X_fold_val = X_train[train_idx], X_train[val_idx]
         y_fold_train, y_fold_val = y_train[train_idx], y_train[val_idx]
         
         if apply_smote:
-            logging.info("Applying SMOTE to balance the dataset.")
-            X_fold_train_balanced, y_fold_train_balanced = SMOTE(random_state=42).fit_resample(X_fold_train,y_fold_train)
-
-        else:
-            X_fold_train_balanced,y_fold_train_balanced = X_fold_train,y_fold_train
-
-        # Train each enabled model
+            X_fold_train, y_fold_train = SMOTE(random_state=42).fit_resample(X_fold_train, y_fold_train)
+        
         for model_key, config in enabled_models.items():
-            logging.info(f"Running {config['name']} model on Fold {fold+1}/{n_splits}")
-            
+            logging.info(f"  Running {config['name']} on fold {fold+1}...")
             try:
                 fold_result = config['function'](
-                        X_fold_train_balanced, y_fold_train_balanced, X_fold_val, y_fold_val,
-                        tune_hyperparams=False, params=best_params[model_key])
+                    X_fold_train, y_fold_train, X_fold_val, y_fold_val,
+                    tune_hyperparams=False, params=None, verbose=True
+                )
                 
-                # Store the out-of-fold predictions
-                oof_probs[model_key][val_idx] = fold_result['predicted_probabilities']
-                
+                if fold_result.get('skipped', False):
+                    logging.info(f"  {config['name']} was skipped on fold {fold+1}")
+                    model_fold_accuracies[model_key].append(0.0)
+                    oof_probs[model_key][val_idx] = np.full((len(val_idx), n_classes), 1.0/n_classes)
+                else:
+                    accuracy = fold_result['accuracy']
+                    logging.info(f"  {config['name']} fold {fold+1} accuracy: {accuracy:.4f}")
+                    model_fold_accuracies[model_key].append(accuracy)
+                    oof_probs[model_key][val_idx] = fold_result['predicted_probabilities']
+                    
             except Exception as e:
                 logging.error(f"Error running {config['name']} on fold {fold+1}: {e}")
-                # Fill with uniform probabilities as fallback
+                model_fold_accuracies[model_key].append(0.0)
                 oof_probs[model_key][val_idx] = np.full((len(val_idx), n_classes), 1.0/n_classes)
 
-    # Filter models by accuracy threshold
-    filtered_oof_probs, passed_models, model_accuracies = filter_models_by_accuracy(
-        oof_probs, y_train, accuracy_threshold
-    )
-    if not filtered_oof_probs:
+    # Calculate average accuracies and filter models
+    model_avg_accuracies = {k: np.mean(v) for k, v in model_fold_accuracies.items()}
+    passed_models = [k for k, acc in model_avg_accuracies.items() if acc >= accuracy_threshold]
+    
+    logging.info(f"Model average accuracies: {model_avg_accuracies}")
+    logging.info(f"Models passing threshold ({accuracy_threshold*100:.1f}%): {passed_models}")
+    
+    if not passed_models:
         raise ValueError(f"No models met the accuracy threshold of {accuracy_threshold*100:.1f}%.")
 
-    logging.info(f"Model accuracies: {model_accuracies}")
-    logging.info(f"Models passing threshold ({accuracy_threshold*100:.1f}%): {passed_models}")
+    # STAGE 2: Hyperparameter tuning only for passed models
+    best_params = {}
+    if tune_hyperparams:
+        logging.info("STAGE 2: Tuning hyperparameters for filtered models...")
+        
+        X_train_hyper, X_test_hyper, y_train_hyper, y_test_hyper = train_test_split(
+            X_train, y_train, test_size=0.2, random_state=101, stratify=y_train
+        )
+        
+        for model_key in passed_models:
+            config = enabled_models[model_key]
+            logging.info(f"Tuning {config['name']} hyperparameters...")
+            
+            try:
+                if model_key == 'tabpfn':
+                    # Special handling for TabPFN
+                    best_params[model_key] = _tune_tabpfn_hyperparams(
+                        config['function'], X_train_hyper, y_train_hyper, 
+                        X_test_hyper, y_test_hyper, config['tune_params']['max_time_options']
+                    )
+                else:
+                    # Standard tuning for other models
+                    result = config['function'](
+                        X_train_hyper, y_train_hyper, X_test_hyper, y_test_hyper,
+                        tune_hyperparams=True, verbose=True, **config['tune_params']
+                    )
+                    best_params[model_key] = result['params']
+                
+                logging.info(f"Best {config['name']} params: {best_params[model_key]}")
+                
+            except Exception as e:
+                logging.error(f"Error tuning {config['name']}: {e}")
+                best_params[model_key] = None
+    else:
+        best_params = {model_key: None for model_key in passed_models}
 
-    # Create meta training features by concatenating all enabled model predictions
-    meta_feature_list = []
-    for model_key in passed_models:
-        meta_feature_list.append(filtered_oof_probs[model_key])
+    # Create meta training features from out-of-fold predictions
+    meta_feature_list = [oof_probs[model_key] for model_key in passed_models]
     meta_X_train = np.hstack(meta_feature_list)
     logging.info(f"Meta training features shape: {meta_X_train.shape}")
 
-    # Train final models on the full training data
-    logging.info("\nTraining final models on the full training data")
+    # STAGE 3: Train final models on full training data
+    logging.info("STAGE 3: Training final models on full training data...")
     test_results = {}
-    for model_key, config in enabled_models.items():
-        if model_key not in passed_models:
-            continue
-        logging.info(f"Training final {config['name']} model...")
+    for model_key in passed_models:
+        config = enabled_models[model_key]
+        logging.info(f"Training final {config['name']} model on full training data...")
         
         try:
             result = config['function'](
-                    X_train, y_train, X_test, y_test, # Passing the original X_train,y_train, X_test and y_test to make predictions.
-                    params=best_params[model_key]
-                )
-           
+                X_train, y_train, X_test, y_test,
+                tune_hyperparams=False,
+                params=best_params[model_key],
+                verbose=True
+            )
             test_results[model_key] = result['predicted_probabilities']
+            logging.info(f"Successfully trained final {config['name']} model")
             
         except Exception as e:
             logging.error(f"Error training final {config['name']} model: {e}")
-            # Fill with uniform probabilities as fallback
             test_results[model_key] = np.full((X_test.shape[0], n_classes), 1.0/n_classes)
 
     # Create meta test features
-    meta_test_feature_list = []
-    for model_key in passed_models:
-        probs = test_results.get(model_key)
-        if probs is None:
-            probs = np.full((X_test.shape[0], n_classes), 1.0/n_classes)
-        if probs.ndim == 1:
-            probs = probs.reshape(1, -1)
-        meta_test_feature_list.append(probs)
-    
+    meta_test_feature_list = [test_results[model_key] for model_key in passed_models]
     meta_X_test = np.hstack(meta_test_feature_list)
     logging.info(f"Meta test features shape: {meta_X_test.shape}")
 
     # Train meta model
-    logging.info("\nTraining meta model...")
+    logging.info("Training meta model...")
     meta_model = xgb.XGBClassifier(objective='multi:softprob', random_state=random_state)
     meta_model.fit(meta_X_train, y_train)
 
@@ -491,13 +410,42 @@ def train_hierarchical_layer(
 
     # Print summary
     logging.info(f"\nSummary:")
-    logging.info(f"- Used models: {list(enabled_models.keys())}")
+    logging.info(f"- Used models: {passed_models}")
     logging.info(f"- Meta features: {meta_X_train.shape[1]}")
     logging.info(f"- Meta model train accuracy: {accuracy_score(y_train, train_preds):.4f}")
     logging.info(f"- Meta model test accuracy: {accuracy_score(y_test, test_preds):.4f}")
 
     return meta_model, meta_X_train, meta_X_test, train_preds, test_preds
 
+
+def _tune_tabpfn_hyperparams(tabpfn_function, X_train, y_train, X_test, y_test, max_time_options):
+    """Special hyperparameter tuning for TabPFN using different max_time values"""
+    best_accuracy = 0.0
+    best_max_time = max_time_options[0]
+    
+    logging.info(f"Tuning TabPFN with max_time options: {max_time_options}")
+    
+    for max_time in max_time_options:
+        try:
+            result = tabpfn_function(
+                X_train, y_train, X_test, y_test,
+                tune_hyperparams=True, max_time=max_time
+            )
+            
+            if result.get('skipped', False):
+                continue
+                
+            accuracy = result['accuracy']
+            logging.info(f"TabPFN with max_time={max_time}: accuracy={accuracy:.4f}")
+            
+            if accuracy > best_accuracy:
+                best_accuracy = accuracy
+                best_max_time = max_time
+                
+        except Exception as e:
+            logging.error(f"Error testing TabPFN with max_time={max_time}: {e}")
+    
+    return {'max_time': best_max_time}
 
 # Train the ensemble models on regression tasks -> Co-ordinates predictions
 def train_hierarchical_coordinate_layer(
@@ -512,246 +460,269 @@ def train_hierarchical_coordinate_layer(
         run_catboost_regressor = None,
         tune_hyperparams = False,
         random_state = 42,
-        n_splits = 3,
-        use_best_model_by_distance=True  # <--- keep this True
+        n_splits = 3
     ):
     """
-    Dynamic hierarchical coordinate prediction layer similar to the classification version.
-    If use_best_model_by_distance is True, only the model with lowest median distance error is used.
+    Two-stage hierarchical coordinate prediction:
+    1. Run all models with default params, select best by average median distance
+    2. Tune hyperparameters only for the best model
     """
 
-    # Define all possible models with their cofigurations
     model_configs = {
         'xgb':{
             'name':'XGBoost',
             'function':run_xgboost_regressor,
             'enabled': run_xgboost_regressor is not None,
-            'prediction_type':'sequential' # XGBoost does sequential lat -> lon prediction
+            'prediction_type':'sequential',
+            'tune_params': {'n_trials': 50, 'timeout': 1800}
         },
         'grownet':{
             'name':'GrowNet',
             'function':run_grownet_regressor,
             'enabled':run_grownet_regressor is not None,
-            'prediction_type':'xyz' # GrowNet predicts xyz coordinates
+            'prediction_type':'xyz',
+            'tune_params': {'n_trials': 50, 'timeout': 1800}
         },
         'nn':{
             'name':'Neural Network',
             'function': run_nn_regressor,
             'enabled':run_nn_regressor is not None,
-            'prediction_type':'xyz' # Neural Network predicts xyz coordinates
+            'prediction_type':'xyz',
+            'tune_params': {'n_trials': 50, 'timeout': 1800}
         },
         'tabpfn':{
-            'name':'Tab PFN',
+            'name':'TabPFN',
             'function':run_tabpfn_regressor,
             'enabled':run_tabpfn_regressor is not None,
-            'prediction_type':'xyz' # TabPFN predicts xyz coordinates
+            'prediction_type':'xyz',
+            'tune_params': {'n_trials': 20, 'max_time_options': [30, 60, 120]}
         },
         'lightgbm':{
             'name':'LightGBM',
             'function':run_lightgbm_regressor,
             'enabled':run_lightgbm_regressor is not None,
-            'prediction_type':'sequential' # LightGBM now uses sequential approach
+            'prediction_type':'sequential',
+            'tune_params': {'n_trials': 50, 'timeout': 1800}
         },
         'catboost':{
             'name':'CatBoost',
             'function':run_catboost_regressor,
             'enabled':run_catboost_regressor is not None,
-            'prediction_type':'sequential' # CatBoost now uses sequential approach
+            'prediction_type':'sequential',
+            'tune_params': {'n_trials': 50, 'timeout': 1800}
         }
     }
 
-    # Filter to only the enabled models
     enabled_models = {k: v for k,v in model_configs.items() if v['enabled']}
 
     if not enabled_models:
         raise ValueError("At least one model function must be provided (not None)")
     
-    print(f"Enabled models: {list(enabled_models.keys())}")
+    logging.info(f"Enabled models: {list(enabled_models.keys())}")
 
-    # Split the same data set to tune the hyperparameters for the mode byt with different random state
-    X_train_hyper, X_test_hyper, y_train_hyper_lat, y_test_hyper_lat = train_test_split(
-        X_train, y_train_lat, test_size=0.2, random_state=101
-    )
-    _, _, y_train_hyper_lon, y_test_hyper_lon = train_test_split(
-        X_train, y_train_lon, test_size=0.2, random_state=101
-    )
-    _, _, y_train_hyper_coords, y_test_hyper_coords = train_test_split(
-        X_train, y_train_coords, test_size=0.2, random_state=101
-    )
-
-    # Hyperparameter tuning for enabled models
-    best_params = {}
+    # STAGE 1: Run all models with default parameters to calculate average median distance
+    logging.info("STAGE 1: Running all models with default parameters...")
     
-    if tune_hyperparams:
-        print("Tuning hyperparameters for the enabled models")
-        
-        for model_key, config in enabled_models.items():
-            print(f"Tuning {config['name']} hyperparameters...")
-            
-            # Write the tuning function here, Keep this empty now as I have not added tuning to the other scripts.
-    else:
-        # Initialiaze all as None
-        best_params = {model_key: None for model_key in enabled_models.keys()}
-
-    # Initialize arrays for storing CV predictions
-    kf = KFold(n_splits=n_splits,shuffle=True,random_state=random_state)
+    kf = KFold(n_splits=n_splits, shuffle=True, random_state=random_state)
     n_train_samples = X_train.shape[0]
+    y_train_combined = np.stack([y_train_lat, y_train_lon], axis=1)
 
-    # Only create oof arrays for enabled models (each model predictions lat and lon)
-    oof_predictions = {}
-    for model_key in enabled_models.keys():
-        oof_predictions[model_key] = np.zeros((n_train_samples,2)) # One for lat and one for long
-
-    # Cross validation loop
-    for fold, (train_idx, val_idx) in enumerate(kf.split(X_train)):
-
-        print(f"\nFold {fold+1}/{n_splits}")
-
-        # SPlit data for this fold
-        X_fold_train, X_fold_val = X_train[train_idx], X_train[val_idx]
-        y_fold_train_lat, y_fold_val_lat = y_train_lat[train_idx], y_train_lat[val_idx]
-        y_fold_train_lon, y_fold_val_lon = y_train_lon[train_idx], y_train_lon[val_idx]
-        y_fold_train_coords, y_fold_val_coords = y_train_coords[train_idx], y_train_coords[val_idx]
-
-        # Train each enabled model
-        for model_key, config in enabled_models.items():
-            print(f"Running {config['name']} model on Fold {fold+1}/{n_splits}")
-
+    # Track average median distances across folds for each model
+    model_avg_median_distances = {}
+    
+    for model_key, config in enabled_models.items():
+        logging.info(f"Running {config['name']} with default parameters...")
+        fold_median_distances = []
+        
+        for fold, (train_idx, val_idx) in enumerate(kf.split(X_train)):
+            X_fold_train, X_fold_val = X_train[train_idx], X_train[val_idx]
+            y_fold_train_lat, y_fold_val_lat = y_train_lat[train_idx], y_train_lat[val_idx]
+            y_fold_train_lon, y_fold_val_lon = y_train_lon[train_idx], y_train_lon[val_idx]
+            y_fold_train_coords, y_fold_val_coords = y_train_coords[train_idx], y_train_coords[val_idx]
+            y_fold_val_combined = np.stack([y_fold_val_lat, y_fold_val_lon], axis=1)
+            
             try:
                 if config['prediction_type'] == "sequential":
-                    # Sequential prediction: lat first, then augment and predict lon
-
-                    # Predict latitude
+                    # Predict latitude first
                     lat_result = config['function'](
                         X_fold_train, y_fold_train_lat, X_fold_val, y_fold_val_lat,
-                        tune_hyperparams=False, params=best_params[model_key]
+                        tune_hyperparams=False, params=None, verbose=False
                     )
+                    
+                    if lat_result.get('skipped', False):
+                        fold_median_distances.append(float('inf'))
+                        continue
+                        
                     lat_pred_train = lat_result['model'].predict(X_fold_train)
                     lat_pred_val = lat_result['predictions']
 
-                    # Augment features with predicted latitude for longitude prediction
+                    # Augment features with latitude predictions
                     X_fold_train_aug = np.hstack([X_fold_train, lat_pred_train.reshape(-1, 1)])
                     X_fold_val_aug = np.hstack([X_fold_val, lat_pred_val.reshape(-1, 1)])
 
                     # Predict longitude
                     lon_result = config['function'](
                         X_fold_train_aug, y_fold_train_lon, X_fold_val_aug, y_fold_val_lon,
-                        tune_hyperparams=False, params=best_params[model_key]
+                        tune_hyperparams=False, params=None, verbose=False
                     )
+                    
+                    if lon_result.get('skipped', False):
+                        fold_median_distances.append(float('inf'))
+                        continue
+                        
                     lon_pred_val = lon_result['predictions']
-
-                    # Store predictions
-                    oof_predictions[model_key][val_idx, 0] = lat_pred_val
-                    oof_predictions[model_key][val_idx, 1] = lon_pred_val
+                    val_predictions = np.stack([lat_pred_val, lon_pred_val], axis=1)
 
                 elif config['prediction_type'] == 'xyz':
-                    # XYZ predictions models (GrowNet, NN, TabPFN)
                     fold_result = config['function'](
                         X_fold_train, y_fold_train_coords, X_fold_val, y_fold_val_coords,
-                        tune_hyperparams=False, params=best_params[model_key]
+                        tune_hyperparams=False, params=None, verbose=False
                     )
-
-                    # Convert XYZ to lat/lon
+                    
+                    if fold_result.get('skipped', False):
+                        fold_median_distances.append(float('inf'))
+                        continue
+                    
                     xyz_pred = fold_result['predictions']
+                    # Ensure predictions are 2D
+                    if xyz_pred.ndim == 1:
+                        xyz_pred = xyz_pred.reshape(-1, 3)
                     xyz_rescaled = coord_scaler.inverse_transform(xyz_pred)
-                    latlon_pred = xyz_to_latlon(xyz_rescaled)
-                    oof_predictions[model_key][val_idx] = latlon_pred
+                    val_predictions = xyz_to_latlon(xyz_rescaled)
+                
+                # Calculate median distance for this fold
+                distances = haversine_distance(
+                    y_fold_val_combined[:, 0], y_fold_val_combined[:, 1],
+                    val_predictions[:, 0], val_predictions[:, 1]
+                )
+                fold_median_distances.append(np.median(distances))
+                logging.info(f"  {config['name']} fold {fold+1} median distance: {np.median(distances):.2f} km")
                 
             except Exception as e:
                 logging.error(f"Error running {config['name']} on fold {fold+1}: {e}")
-                exit()
-
-    # Combine ground truth latitude and longitude for R2 evaluation
-    y_train_combined = np.stack([y_train_lat, y_train_lon], axis=1)
+                fold_median_distances.append(float('inf'))
+        
+        model_avg_median_distances[model_key] = np.mean(fold_median_distances)
+        logging.info(f"{config['name']} average median distance: {model_avg_median_distances[model_key]:.2f} km")
     
-    # --- Only use the best model by median distance error ---
-    model_median_errors = compute_model_median_distance(oof_predictions, y_train_combined)
-    print(f"Model median geodesic errors (km): {model_median_errors}")
-    best_model = min(model_median_errors, key=model_median_errors.get)
-    print(f"Using only the best model by median distance error: {best_model}")
+    # Select best model by lowest average median distance
+    best_model = min(model_avg_median_distances, key=model_avg_median_distances.get)
+    logging.info(f"Best model by average median distance: {best_model}")
+    logging.info(f"Model average median distances: {model_avg_median_distances}")
+    
+    # STAGE 2: Hyperparameter tuning only for the best model
+    best_params = None
+    if tune_hyperparams:
+        logging.info("STAGE 2: Tuning hyperparameters for the best model...")
+        
+        X_train_hyper, X_test_hyper, y_train_hyper_lat, y_test_hyper_lat = train_test_split(
+            X_train, y_train_lat, test_size=0.2, random_state=101
+        )
+        _, _, y_train_hyper_lon, y_test_hyper_lon = train_test_split(
+            X_train, y_train_lon, test_size=0.2, random_state=101
+        )
+        _, _, y_train_hyper_coords, y_test_hyper_coords = train_test_split(
+            X_train, y_train_coords, test_size=0.2, random_state=101
+        )
+        
+        config = enabled_models[best_model]
+        logging.info(f"Tuning {config['name']} hyperparameters...")
+        
+        try:
+            if config['prediction_type'] == 'sequential':
+                # For sequential models, tune on latitude prediction
+                tune_params = config['tune_params'].copy()
+                tune_params.update({
+                    'tune_hyperparams': True,
+                    'verbose': True
+                })
+                
+                result = config['function'](
+                    X_train_hyper, y_train_hyper_lat, X_test_hyper, y_test_hyper_lat,
+                    **tune_params
+                )
+                
+            elif config['prediction_type'] == 'xyz':
+                tune_params = config['tune_params'].copy()
+                tune_params.update({
+                    'tune_hyperparams': True,
+                    'verbose': True
+                })
+                
+                if best_model == 'tabpfn':
+                    # Special handling for TabPFN
+                    best_params = _tune_tabpfn_regressor_hyperparams(
+                        config['function'], X_train_hyper, y_train_hyper_coords,
+                        X_test_hyper, y_test_hyper_coords, tune_params['max_time_options']
+                    )
+                else:
+                    result = config['function'](
+                        X_train_hyper, y_train_hyper_coords, X_test_hyper, y_test_hyper_coords,
+                        **tune_params
+                    )
+                    best_params = result.get('params')
+            
+            if best_params is None and 'result' in locals():
+                best_params = result.get('params')
+            logging.info(f"Best {config['name']} params: {best_params}")
+            
+        except Exception as e:
+            logging.error(f"Error tuning {config['name']}: {e}")
+            best_params = None
 
-    # Use only the best model's predictions
-    meta_X_train = oof_predictions[best_model]
-    passed_models = [best_model]
-
-    # Create meta training features by concatenating only the passed model predictions
-    meta_features_list = []
-    for model_key in passed_models:
-        meta_features_list.append(oof_predictions[model_key])
-
-    meta_X_train = np.hstack(meta_features_list)
-    print(f"Meta training feature shape: {meta_X_train.shape}")
-
-    # Train final model on full training data
-    print("\nTraining final model on the full training data")
+    # STAGE 3: Final training with tuned parameters
+    logging.info("STAGE 3: Final training with tuned parameters...")
+    
     config = enabled_models[best_model]
-    test_results = {}
     
     try:
         if config['prediction_type'] == 'sequential':
-            # Sequential prediction: lat first, then augment and predict lon
-            # Only pass verbose to those that accept it (XGBoost, CatBoost)
-            verbose_supported = best_model in ['xgb', 'catboost']
-            lat_kwargs = {
-                'X_train': X_train, 'y_train': y_train_lat, 'X_test': X_test, 'y_test': y_test_lat,
-                'params': best_params[best_model]
-            }
-            if verbose_supported:
-                lat_kwargs['verbose'] = True
-            lat_result = config['function'](**lat_kwargs)
+            # Sequential prediction with tuned params
+            lat_result = config['function'](
+                X_train, y_train_lat, X_test, y_test_lat,
+                tune_hyperparams=False, params=best_params, verbose=True
+            )
+            
+            if lat_result.get('skipped', False):
+                raise ValueError(f"Latitude prediction failed for {config['name']}")
+                
             lat_pred_train = lat_result['model'].predict(X_train)
             lat_pred_test = lat_result['predictions']
             
-            # Augment and predict longitude
+            # Augment features with latitude predictions
             X_train_aug = np.hstack([X_train, lat_pred_train.reshape(-1, 1)])
             X_test_aug = np.hstack([X_test, lat_pred_test.reshape(-1, 1)])
-            lon_kwargs = {
-                'X_train': X_train_aug, 'y_train': y_train_lon, 'X_test': X_test_aug, 'y_test': y_test_lon,
-                'params': best_params[best_model]
-            }
-            if verbose_supported:
-                lon_kwargs['verbose'] = True
-            lon_result = config['function'](**lon_kwargs)
-            lon_pred_test = lon_result['predictions']
             
-            test_results[best_model] = np.stack([lat_pred_test, lon_pred_test], axis=1)
-
-        elif config['prediction_type'] == 'xyz':
-            # XYZ prediction models (GrowNet, NN, TabPFN)
-            result = config['function'](
-                X_train, y_train_coords, X_test, y_test_coords,
-                params=best_params[best_model]
+            lon_result = config['function'](
+                X_train_aug, y_train_lon, X_test_aug, y_test_lon,
+                tune_hyperparams=False, params=best_params, verbose=True
             )
             
-            xyz_pred = result['predictions']
-            xyz_rescaled = coord_scaler.inverse_transform(xyz_pred)
-            latlon_pred = xyz_to_latlon(xyz_rescaled)
+            if lon_result.get('skipped', False):
+                raise ValueError(f"Longitude prediction failed for {config['name']}")
+                
+            lon_pred_test = lon_result['predictions']
+            test_preds = np.stack([lat_pred_test, lon_pred_test], axis=1)
+
+        elif config['prediction_type'] == 'xyz':
+            result = config['function'](
+                X_train, y_train_coords, X_test, y_test_coords,
+                tune_hyperparams=False, params=best_params, verbose=True
+            )
             
-            test_results[best_model] = latlon_pred
+            if result.get('skipped', False):
+                raise ValueError(f"XYZ prediction failed for {config['name']}")
+            
+            xyz_pred = result['predictions']
+            # Ensure predictions are 2D
+            if xyz_pred.ndim == 1:
+                xyz_pred = xyz_pred.reshape(-1, 3)
+            xyz_rescaled = coord_scaler.inverse_transform(xyz_pred)
+            test_preds = xyz_to_latlon(xyz_rescaled)
             
     except Exception as e:
-        logging.error(f"Error training final {config['name']} model : {e}")
-        exit()
-
-    # Create meta test features (only using passed models)
-    meta_test_feature_list = []
-    for model_key in passed_models:
-        if model_key in test_results:
-            preds = test_results[model_key]
-        else:
-            # Fallback: fill with zeros of correct shape
-            preds = np.zeros((X_test.shape[0], 2))
-        meta_test_feature_list.append(preds)
-    
-    meta_X_test = np.hstack(meta_test_feature_list)
-    print(f"Meta test features shape: {meta_X_test.shape}")
-
-    # Prepare targets
-    y_train_combined = np.stack([y_train_lat, y_train_lon], axis=1)
-    y_test_combined = np.stack([y_test_lat, y_test_lon], axis=1)
-
-    # Make predictions
-    test_preds = test_results[best_model]
+        logging.error(f"Error training final {config['name']} model: {e}")
+        raise
 
     # Calculate distance metrics
     def calculate_distance_metrics(y_true, y_pred):
@@ -764,24 +735,51 @@ def train_hierarchical_coordinate_layer(
             'distances': distances
         }
 
-    train_metrics = calculate_distance_metrics(y_train_combined, meta_X_train)
+    y_test_combined = np.stack([y_test_lat, y_test_lon], axis=1)
     test_metrics = calculate_distance_metrics(y_test_combined, test_preds)
 
-    # Print summary
-    print(f"\nSummary:")
-    print(f"- Used model: {best_model}")
-    print(f"- Meta model train median distance: {train_metrics['median_distance']:.2f} km")
-    print(f"- Meta model test median distance: {test_metrics['median_distance']:.2f} km")
-    print(f"- Meta model train mean distance: {train_metrics['mean_distance']:.2f} km")
-    print(f"- Meta model test mean distance: {test_metrics['mean_distance']:.2f} km")
-    print(f"- Meta model test 95th percentile: {test_metrics['percentile_95']:.2f} km")
+    logging.info(f"\nSummary:")
+    logging.info(f"- Used model: {best_model}")
+    logging.info(f"- Test median distance: {test_metrics['median_distance']:.2f} km")
+    logging.info(f"- Test mean distance: {test_metrics['mean_distance']:.2f} km")
+    logging.info(f"- Test 95th percentile: {test_metrics['percentile_95']:.2f} km")
 
     return {
         'test_preds': test_preds,
-        'train_metrics': train_metrics,
         'test_metrics': test_metrics,
-        'enabled_models': [best_model]
+        'enabled_models': [best_model],
+        'best_model': best_model,
+        'best_params': best_params
     }
+
+def _tune_tabpfn_regressor_hyperparams(tabpfn_function, X_train, y_train, X_test, y_test, max_time_options):
+    """Special hyperparameter tuning for TabPFN regressor using different max_time values"""
+    best_r2 = -float('inf')
+    best_max_time = max_time_options[0]
+    
+    logging.info(f"Tuning TabPFN regressor with max_time options: {max_time_options}")
+    
+    for max_time in max_time_options:
+        try:
+            result = tabpfn_function(
+                X_train, y_train, X_test, y_test,
+                tune_hyperparams=True, max_time=max_time, verbose=False
+            )
+            
+            if result.get('skipped', False):
+                continue
+                
+            r2 = result.get('r2_score', -float('inf'))
+            logging.info(f"TabPFN regressor with max_time={max_time}: R²={r2:.4f}")
+            
+            if r2 > best_r2:
+                best_r2 = r2
+                best_max_time = max_time
+                
+        except Exception as e:
+            logging.error(f"Error testing TabPFN regressor with max_time={max_time}: {e}")
+    
+    return {'max_time': best_max_time}
 
 # Process data
 df = pd.read_csv("/home/chandru/binp37/results/metasub/metasub_training_testing_data.csv")
@@ -817,13 +815,6 @@ y_train_lon, y_test_lon = split_data['y_lon_train'], split_data['y_lon_test']
 # Train and test for co-ordinates
 y_train_coords, y_test_coords = split_data['y_coords_train'],  split_data['y_coords_test']
 
-# Set device for GrowNet
-grownet_device = "cuda" if torch.cuda.is_available() else "cpu"
-
-# Set device for neural networks
-nn_device = "cuda" if torch.cuda.is_available() else "cpu"
-print(f"Using device for neural networks: {nn_device}")
-
 # Continent layer
 continent_model, meta_X_train_cont, meta_X_test_cont, cont_train_preds, cont_test_preds = train_hierarchical_layer(
     X_train=X_train_cont,
@@ -831,7 +822,7 @@ continent_model, meta_X_train_cont, meta_X_test_cont, cont_train_preds, cont_tes
     y_train=y_train_cont,
     y_test=y_test_cont,
     run_xgboost_classifier=run_xgboost_classifier,
-    run_grownet_classifier=None, #lambda *args, **kwargs: run_grownet_classifier(*args, **kwargs, device=grownet_device),
+    run_grownet_classifier=None,
     run_nn_classifier=None,
     run_tabpfn_classifier=None,
     run_lightgbm_classifier=run_lightgbm_classifier,
@@ -851,17 +842,19 @@ city_model, meta_X_train_city, meta_X_test_city, city_train_preds, city_test_pre
     X_test=X_test_city,
     y_train=y_train_city,
     y_test=y_test_city,
-    run_xgboost_classifier=run_xgboost_classifier,
+    run_xgboost_classifier=None,
     run_grownet_classifier=None,
-    run_lightgbm_classifier=run_lightgbm_classifier,
+    run_lightgbm_classifier=None,
     run_catboost_classifier=None,
     run_nn_classifier=None,
-    run_tabpfn_classifier=None,
+    run_tabpfn_classifier=run_tabpfn_classifier,  # Now handles GPU/CPU automatically
     tune_hyperparams=False,
     apply_smote=False,
     n_splits=5,
     accuracy_threshold=0.91  # 89% for city
 )
+
+exit()
 
 # Coordinate layer
 
@@ -880,14 +873,13 @@ coords_results = train_hierarchical_coordinate_layer(
     y_test_coords=y_test_coords,
     coord_scaler=processed_data['encoders']['coord'],
     run_xgboost_regressor=run_xgboost_regressor,
-    run_tabpfn_regressor=run_tabpfn_regressor,
-    run_nn_regressor=lambda *a, **k: run_nn_regressor(*a, **k, device=nn_device),
-    run_grownet_regressor=None, #lambda *a, **k: run_grownet_regressor(*a, **k, device=grownet_device),
+    run_tabpfn_regressor=None,
+    run_nn_regressor=run_nn_regressor,
+    run_grownet_regressor=run_grownet_regressor,
     run_lightgbm_regressor=run_lightgbm_regressor,
     run_catboost_regressor=run_catboost_regressor,
     tune_hyperparams=False,
-    n_splits=5,
-    use_best_model_by_distance=True  # Use the best model by median distance error
+    n_splits=5
 )
 
 

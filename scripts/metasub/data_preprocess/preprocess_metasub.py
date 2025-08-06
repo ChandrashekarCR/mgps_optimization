@@ -43,8 +43,6 @@ def process_metasub(metadata, taxa_abundance):
     metasub_data.loc[kyiv_filter,'latitude'] = metasub_data.loc[kyiv_filter,'city_latitude'] # Set all the latitude to the city_latitude
     metasub_data.loc[kyiv_filter,'longitude'] = metasub_data.loc[kyiv_filter,'city_longitude'] # Set all the latitude to the city_longitutde
 
-    porto_filter = metasub_data['city'] == 'porto'
-    metasub_data.loc[porto_filter,'city'] = "europe"
 
     # Fill missing latitude and longitude values with city-level data
     missing_lat = metasub_data["latitude"].isna()

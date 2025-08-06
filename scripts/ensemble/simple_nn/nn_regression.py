@@ -357,58 +357,89 @@ class NNRegressor:
 
 def run_nn_regressor(X_train, y_train, X_test, y_test, device=None,
                      tune_hyperparams=False, params=None,
-                     n_trials=20, timeout=1200):
+                     n_trials=20, timeout=1200, verbose=True):
     """Run the neural network regressor"""
     
-    # Set device if not provided
-    if device is None:
-        device = "cuda" if torch.cuda.is_available() else "cpu"
-    
-    print(f"Running neural network regressor on device: {device}")
-    
-    # Use default if params not given
-    if params is None:
-        params = default_regression_params()
-    else:
-        default = default_regression_params()
-        default.update(params)
-        params = default
+    try:
+        # Set device if not provided
+        if device is None:
+            device = "cuda" if torch.cuda.is_available() else "cpu"
+        
+        if verbose:
+            print(f"Running neural network regressor on device: {device}")
+        
+        # Use default if params not given
+        if params is None:
+            params = default_regression_params()
+        else:
+            default = default_regression_params()
+            default.update(params)
+            params = default
 
-    # Update input dimension based on actual data
-    params['input_dim'] = X_train.shape[1]
-    params['output_dim'] = 1  # Single output for regression
+        # Update input dimension based on actual data
+        params['input_dim'] = X_train.shape[1]
+        
+        # Handle both 1D and multi-dimensional targets
+        if len(y_train.shape) == 1:
+            y_train = y_train.reshape(-1, 1)
+            y_test = y_test.reshape(-1, 1)
+        
+        params['output_dim'] = y_train.shape[1]
 
-    if tune_hyperparams:
-        # Split validation set from training data
-        X_train_split, X_val, y_train_split, y_val = train_test_split(
-            X_train, y_train, test_size=0.2, random_state=42
-        )
+        if tune_hyperparams:
+            # Split validation set from training data
+            X_train_split, X_val, y_train_split, y_val = train_test_split(
+                X_train, y_train, test_size=0.2, random_state=42
+            )
 
-        tuner = NNRegressionTuner(X_train_split, y_train_split, X_val, y_val, 
-                       params, device=device, n_trials=n_trials, timeout=timeout)
-        best_params, best_score = tuner.tune()
-        params.update(best_params)
-        print("Using best params:", params)
+            tuner = NNRegressionTuner(X_train_split, y_train_split, X_val, y_val, 
+                           params, device=device, n_trials=n_trials, timeout=timeout)
+            best_params, best_score = tuner.tune()
+            params.update(best_params)
+            if verbose:
+                print("Using best params:", params)
 
-    # Train final model on full training data
-    model = NNRegressor(params, device=device)
-    model.fit(X_train, y_train)
+        # Train final model on full training data
+        model = NNRegressor(params, device=device)
+        model.fit(X_train, y_train)
 
-    # Evaluate on test set
-    results = model.evaluate(X_test, y_test)
-    
-    print(f"\nRegression Results:")
-    print(f"MSE: {results['mse']:.4f}")
-    print(f"MAE: {results['mae']:.4f}")
-    print(f"RMSE: {results['rmse']:.4f}")
-    print(f"R2: {results['r2']:.4f}")
-    
-    return {
-        'model': model,
-        'predictions': results['predictions'],
-        'mse': results['mse'],
-        'mae': results['mae'],
-        'rmse': results['rmse'],
-        'r2': results['r2'],
-        'params': params
-    }
+        # Evaluate on test set
+        results = model.evaluate(X_test, y_test)
+        
+        if verbose:
+            print(f"\nRegression Results:")
+            print(f"MSE: {results['mse']:.4f}")
+            print(f"MAE: {results['mae']:.4f}")
+            print(f"RMSE: {results['rmse']:.4f}")
+            print(f"R2: {results['r2']:.4f}")
+        
+        return {
+            'model': model,
+            'predictions': results['predictions'],
+            'mse': results['mse'],
+            'mae': results['mae'],
+            'rmse': results['rmse'],
+            'r2_score': results['r2'],  # Add r2_score key for consistency
+            'params': params,
+            'skipped': False
+        }
+        
+    except Exception as e:
+        if verbose:
+            print(f"Error in neural network regressor: {e}")
+        # Return dummy predictions on error
+        n_samples = X_test.shape[0]
+        output_dim = y_train.shape[1] if len(y_train.shape) > 1 else 1
+        dummy_preds = np.zeros((n_samples, output_dim))
+        
+        return {
+            'model': None,
+            'predictions': dummy_preds,
+            'mse': float('inf'),
+            'mae': float('inf'),
+            'rmse': float('inf'),
+            'r2_score': -float('inf'),
+            'params': params,
+            'skipped': True,
+            'error': str(e)
+        }
