@@ -628,8 +628,21 @@ def run_nn_classifier(X_train,y_train, X_test,y_test,device="cuda",
         model.fit(X_train, y_train)
 
         results = model.evaluate(X_test, y_test)
+
+        # Determine class names for the report
+        if params.get('output_dim', None) == 7:
+            # Assume continent classification
+            target_names = processed_data['continents']
+        else:
+            # Assume city classification
+            target_names = processed_data['cities']
+
         print("\nClassification Report:")
-        print(classification_report(results['targets'], results['predictions']))
+        print(classification_report(
+            results['targets'],
+            results['predictions'],
+            target_names=target_names
+        ))
         print("\nAccuracy:", results['class_accuracy'])
         return {
         'model': model,

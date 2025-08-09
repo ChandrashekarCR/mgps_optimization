@@ -347,11 +347,14 @@ def train_hierarchical_layer(
             
             try:
                 if model_key == 'tabpfn':
-                    # Special handling for TabPFN
-                    best_params[model_key] = _tune_tabpfn_hyperparams(
-                        config['function'], X_train_hyper, y_train_hyper, 
-                        X_test_hyper, y_test_hyper, config['tune_params']['max_time_options']
+                    # Special handling for TabPFN: call its own tuning logic
+                    result = config['function'](
+                        X_train_hyper, y_train_hyper, X_test_hyper, y_test_hyper,
+                        tune_hyperparams=True,
+                        max_time_options=config['tune_params']['max_time_options'],
+                        verbose=True
                     )
+                    best_params[model_key] = result['params']
                 else:
                     # Standard tuning for other models
                     result = config['function'](
@@ -417,35 +420,6 @@ def train_hierarchical_layer(
 
     return meta_model, meta_X_train, meta_X_test, train_preds, test_preds
 
-
-def _tune_tabpfn_hyperparams(tabpfn_function, X_train, y_train, X_test, y_test, max_time_options):
-    """Special hyperparameter tuning for TabPFN using different max_time values"""
-    best_accuracy = 0.0
-    best_max_time = max_time_options[0]
-    
-    logging.info(f"Tuning TabPFN with max_time options: {max_time_options}")
-    
-    for max_time in max_time_options:
-        try:
-            result = tabpfn_function(
-                X_train, y_train, X_test, y_test,
-                tune_hyperparams=True, max_time=max_time
-            )
-            
-            if result.get('skipped', False):
-                continue
-                
-            accuracy = result['accuracy']
-            logging.info(f"TabPFN with max_time={max_time}: accuracy={accuracy:.4f}")
-            
-            if accuracy > best_accuracy:
-                best_accuracy = accuracy
-                best_max_time = max_time
-                
-        except Exception as e:
-            logging.error(f"Error testing TabPFN with max_time={max_time}: {e}")
-    
-    return {'max_time': best_max_time}
 
 # Train the ensemble models on regression tasks -> Co-ordinates predictions
 def train_hierarchical_coordinate_layer(
@@ -650,15 +624,12 @@ def train_hierarchical_coordinate_layer(
                 })
                 
                 if best_model == 'tabpfn':
-                    # Special handling for TabPFN
-                    best_params = _tune_tabpfn_regressor_hyperparams(
-                        config['function'], X_train_hyper, y_train_hyper_coords,
-                        X_test_hyper, y_test_hyper_coords, tune_params['max_time_options']
-                    )
-                else:
+                    # Special handling for TabPFN: call its own tuning logic
                     result = config['function'](
                         X_train_hyper, y_train_hyper_coords, X_test_hyper, y_test_hyper_coords,
-                        **tune_params
+                        tune_hyperparams=True,
+                        max_time_options=tune_params['max_time_options'],
+                        verbose=True
                     )
                     best_params = result.get('params')
             
@@ -752,35 +723,6 @@ def train_hierarchical_coordinate_layer(
         'best_params': best_params
     }
 
-def _tune_tabpfn_regressor_hyperparams(tabpfn_function, X_train, y_train, X_test, y_test, max_time_options):
-    """Special hyperparameter tuning for TabPFN regressor using different max_time values"""
-    best_r2 = -float('inf')
-    best_max_time = max_time_options[0]
-    
-    logging.info(f"Tuning TabPFN regressor with max_time options: {max_time_options}")
-    
-    for max_time in max_time_options:
-        try:
-            result = tabpfn_function(
-                X_train, y_train, X_test, y_test,
-                tune_hyperparams=True, max_time=max_time, verbose=False
-            )
-            
-            if result.get('skipped', False):
-                continue
-                
-            r2 = result.get('r2_score', -float('inf'))
-            logging.info(f"TabPFN regressor with max_time={max_time}: R²={r2:.4f}")
-            
-            if r2 > best_r2:
-                best_r2 = r2
-                best_max_time = max_time
-                
-        except Exception as e:
-            logging.error(f"Error testing TabPFN regressor with max_time={max_time}: {e}")
-    
-    return {'max_time': best_max_time}
-
 # Process data
 df = pd.read_csv("/home/chandru/binp37/results/metasub/metasub_training_testing_data.csv")
 processed_data = process_data_hierarchical(df)
@@ -821,11 +763,11 @@ continent_model, meta_X_train_cont, meta_X_test_cont, cont_train_preds, cont_tes
     X_test=X_test_cont,
     y_train=y_train_cont,
     y_test=y_test_cont,
-    run_xgboost_classifier=run_xgboost_classifier,
+    run_xgboost_classifier=None,
     run_grownet_classifier=None,
     run_nn_classifier=None,
-    run_tabpfn_classifier=None,
-    run_lightgbm_classifier=run_lightgbm_classifier,
+    run_tabpfn_classifier=run_tabpfn_classifier,
+    run_lightgbm_classifier=None,
     run_catboost_classifier=None,
     tune_hyperparams=False,
     apply_smote=True,
@@ -842,9 +784,9 @@ city_model, meta_X_train_city, meta_X_test_city, city_train_preds, city_test_pre
     X_test=X_test_city,
     y_train=y_train_city,
     y_test=y_test_city,
-    run_xgboost_classifier=None,
+    run_xgboost_classifier=run_xgboost_classifier,
     run_grownet_classifier=None,
-    run_lightgbm_classifier=None,
+    run_lightgbm_classifier=run_lightgbm_classifier,
     run_catboost_classifier=None,
     run_nn_classifier=None,
     run_tabpfn_classifier=run_tabpfn_classifier,  # Now handles GPU/CPU automatically
@@ -853,8 +795,6 @@ city_model, meta_X_train_city, meta_X_test_city, city_train_preds, city_test_pre
     n_splits=5,
     accuracy_threshold=0.91  # 89% for city
 )
-
-exit()
 
 # Coordinate layer
 
@@ -873,11 +813,11 @@ coords_results = train_hierarchical_coordinate_layer(
     y_test_coords=y_test_coords,
     coord_scaler=processed_data['encoders']['coord'],
     run_xgboost_regressor=run_xgboost_regressor,
-    run_tabpfn_regressor=None,
-    run_nn_regressor=run_nn_regressor,
-    run_grownet_regressor=run_grownet_regressor,
+    run_tabpfn_regressor=run_tabpfn_regressor,
+    run_nn_regressor=None,
+    run_grownet_regressor=None,
     run_lightgbm_regressor=run_lightgbm_regressor,
-    run_catboost_regressor=run_catboost_regressor,
+    run_catboost_regressor=None,
     tune_hyperparams=False,
     n_splits=5
 )
