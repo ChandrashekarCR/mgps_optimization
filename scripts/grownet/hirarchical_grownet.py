@@ -898,6 +898,21 @@ def error_calc_hierarchical_grownet(metrics, continent_encoder, city_encoder, co
 print("\n--- Hierarchical GrowNet Error Analysis ---")
 error_calc_hierarchical_grownet(metrics, continent_encoder, city_encoder, coordinate_encoder)
 
+# Print coordinate regression metrics
+from sklearn.metrics import mean_squared_error, r2_score
+
+true_coords = np.array(metrics['targets']['coords'])
+pred_coords = np.array(metrics['predictions']['coords'])
+
+coord_mse = mean_squared_error(true_coords, pred_coords)
+coord_rmse = np.sqrt(coord_mse)
+coord_r2 = r2_score(true_coords, pred_coords)
+
+print(f"\nCoordinate Regression Metrics:")
+print(f"MSE:  {coord_mse:.5f}")
+print(f"RMSE: {coord_rmse:.5f}")
+print(f"R^2:  {coord_r2:.5f}")
+
 
 
 

@@ -838,7 +838,7 @@ np.save(os.path.join(save_dir, "y_pred_cont.npy"),cont_test_preds)
 # City Layer
 
 logging.info("\nCity Prediction - Test Set:")
-logging.info(classification_report(y_test_city,city_test_preds))
+logging.info(classification_report(y_test_city,city_test_preds,target_names=processed_data['cities']))
 # Save the test predictions
 np.save(os.path.join(save_dir,"y_test_city.npy"),y_test_city)
 np.save(os.path.join(save_dir,"y_pred_city.npy"),city_test_preds)
