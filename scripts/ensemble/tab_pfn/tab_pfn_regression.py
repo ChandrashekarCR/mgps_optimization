@@ -7,35 +7,6 @@ from tabpfn import TabPFNRegressor
 from tabpfn_extensions.post_hoc_ensembles.sklearn_interface import AutoTabPFNRegressor
 from sklearn.metrics import mean_squared_error, mean_absolute_error, r2_score
 
-def _tune_tabpfn_regressor_hyperparams(
-    X_train, y_train, X_test, y_test, max_time_options, verbose=False, **kwargs
-):
-    best_r2 = -float('inf')
-    best_max_time = max_time_options[0]
-    best_result = None
-
-    for max_time in max_time_options:
-        result = run_tabpfn_regressor(
-            X_train, y_train, X_test, y_test,
-            tune_hyperparams=True, max_time=max_time, verbose=verbose
-        )
-        if result.get('skipped', False):
-            continue
-        # Use mean R2 across coordinates
-        r2s = [v['r2'] for v in result['metrics'].values()] if result.get('metrics') else [-float('inf')]
-        mean_r2 = np.mean(r2s)
-        if verbose:
-            print(f"TabPFN regressor with max_time={max_time}: mean R2={mean_r2:.4f}")
-        if mean_r2 > best_r2:
-            best_r2 = mean_r2
-            best_max_time = max_time
-            best_result = result
-
-    if best_result is None:
-        # All runs skipped or failed
-        return {'params': {'max_time': best_max_time, 'device': 'cuda'}, 'r2_score': -float('inf')}
-    return {'params': {'max_time': best_max_time, 'device': 'cuda'}, 'r2_score': best_r2}
-
 def run_tabpfn_regressor(
     X_train, y_train, X_test, y_test,
     tune_hyperparams=False, max_time=300, params=None,
@@ -76,37 +47,38 @@ def run_tabpfn_regressor(
     metrics = {}
 
     try:
-        # Hyperparameter tuning with multiple max_time options
-        if tune_hyperparams and max_time_options is not None:
-            return _tune_tabpfn_regressor_hyperparams(
-                X_train, y_train, X_test, y_test, max_time_options, verbose=verbose
-            )
-
-        for i, coord in enumerate(coord_names):
+        if tune_hyperparams:
             if verbose:
-                print(f"\n----- Predicting {coord.upper()} -----")
-            
-            if tune_hyperparams:
+                print(f"Using AutoTabPFNRegressor for hyperparameter tuning with max_time=300...")
+            for i, coord in enumerate(coord_names):
                 if verbose:
-                    print(f"Using AutoTabPFN for hyperparameter tuning with max_time={max_time}...")
-                model = AutoTabPFNRegressor(device=device, max_time=max_time)
-            else:
+                    print(f"\n----- Predicting {coord.upper()} -----")
+                model = AutoTabPFNRegressor(device=device, max_time=300)
+                model.fit(X_train, y_train[:, i])
+                y_pred = model.predict(X_test)
+                preds.append(y_pred)
+                mse = mean_squared_error(y_test[:, i], y_pred)
+                mae = mean_absolute_error(y_test[:, i], y_pred)
+                r2 = r2_score(y_test[:, i], y_pred)
                 if verbose:
-                    print(f"Using TabPFN on device: {device}")
+                    print(f"{coord.upper()} - MSE: {mse:.4f}, MAE: {mae:.4f}, R2: {r2:.4f}")
+                metrics[coord] = {'mse': mse, 'mae': mae, 'r2': r2}
+                models[coord] = model
+        else:
+            for i, coord in enumerate(coord_names):
+                if verbose:
+                    print(f"\n----- Predicting {coord.upper()} -----")
                 model = TabPFNRegressor(device=device)
-                
-            model.fit(X_train, y_train[:, i])
-            y_pred = model.predict(X_test)
-            preds.append(y_pred)
-
-            mse = mean_squared_error(y_test[:, i], y_pred)
-            mae = mean_absolute_error(y_test[:, i], y_pred)
-            r2 = r2_score(y_test[:, i], y_pred)
-
-            if verbose:
-                print(f"{coord.upper()} - MSE: {mse:.4f}, MAE: {mae:.4f}, R2: {r2:.4f}")
-            metrics[coord] = {'mse': mse, 'mae': mae, 'r2': r2}
-            models[coord] = model
+                model.fit(X_train, y_train[:, i])
+                y_pred = model.predict(X_test)
+                preds.append(y_pred)
+                mse = mean_squared_error(y_test[:, i], y_pred)
+                mae = mean_absolute_error(y_test[:, i], y_pred)
+                r2 = r2_score(y_test[:, i], y_pred)
+                if verbose:
+                    print(f"{coord.upper()} - MSE: {mse:.4f}, MAE: {mae:.4f}, R2: {r2:.4f}")
+                metrics[coord] = {'mse': mse, 'mae': mae, 'r2': r2}
+                models[coord] = model
 
         preds = np.stack(preds, axis=1)  # Shape: [n_samples, 3]
         lat_pred_rad = np.arcsin(preds[:, 2])
@@ -135,5 +107,6 @@ def run_tabpfn_regressor(
             'skipped': True,
             'reason': f'error: {str(e)}'
         }
+        
 
 
