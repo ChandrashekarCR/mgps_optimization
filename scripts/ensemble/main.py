@@ -218,17 +218,18 @@ def train_hierarchical_layer(
         run_nn_classifier=None,
         run_tabpfn_classifier=None,
         run_lightgbm_classifier=None,
-        run_catboost_classifier = None,
+        run_catboost_classifier=None,
         tune_hyperparams=False,
-        apply_smote = False,
+        apply_smote=False,
         random_state=42,
         n_splits=3,
         accuracy_threshold=0.8):
     """
     Efficient single-stage hierarchical layer:
-    1. Run all models with default params in CV to filter AND generate meta-features
-    2. Tune hyperparameters only for filtered models
-    3. Train final ensemble
+    1. Run all models with default params in CV to identify models that meet accuracy threshold
+    2. Tune hyperparameters only for filtered models (except TabPFN, which uses max time setting)
+    3. Generate OOF predictions using tuned models
+    4. Train final ensemble on OOF predictions from tuned models
     """
     
     # Define all possible models with their configurations
@@ -255,18 +256,18 @@ def train_hierarchical_layer(
             'name': 'TabPFN',
             'function': run_tabpfn_classifier,
             'enabled': run_tabpfn_classifier is not None,
-            'tune_params': {'max_time_options': [30, 60, 120, 180]}
+            'max_time_options': [30, 60, 120, 180, 300]  # TabPFN uses max_time instead of normal tuning
         },
         'lightgbm': {
             'name': 'LightGBM',
-            'function':run_lightgbm_classifier,
-            'enabled':run_lightgbm_classifier is not None,
+            'function': run_lightgbm_classifier,
+            'enabled': run_lightgbm_classifier is not None,
             'tune_params': {'n_trials': 50, 'timeout': 1800}
         },
         'catboost': {
             'name': 'CatBoost',
-            'function':run_catboost_classifier,
-            'enabled':run_catboost_classifier is not None,
+            'function': run_catboost_classifier,
+            'enabled': run_catboost_classifier is not None,
             'tune_params': {'n_trials': 50, 'timeout': 1800}
         }
     }
@@ -279,48 +280,44 @@ def train_hierarchical_layer(
     
     logging.info(f"Enabled models: {list(enabled_models.keys())}")
     
-    # STAGE 1: Single CV loop to filter models AND generate meta-features
-    logging.info("STAGE 1: Running cross-validation to filter models and generate meta-features...")
+    # STAGE 1: Initial CV loop to identify models that meet threshold
+    logging.info("STAGE 1: Running initial CV to identify models that meet the threshold...")
     
     skf = StratifiedKFold(n_splits=n_splits, shuffle=True, random_state=random_state)
     n_train_samples = X_train.shape[0]
     n_classes = len(np.unique(y_train))
 
-    # Track accuracies and out-of-fold predictions
+    # Track accuracies for model filtering
     model_fold_accuracies = {model_key: [] for model_key in enabled_models.keys()}
-    oof_probs = {model_key: np.zeros((n_train_samples, n_classes)) for model_key in enabled_models.keys()}
     
     for fold, (train_idx, val_idx) in enumerate(skf.split(X_train, y_train)):
-        logging.info(f"Processing Fold {fold+1}/{n_splits}")
+        logging.info(f"Processing Fold {fold+1}/{n_splits} for initial evaluation")
         
         X_fold_train, X_fold_val = X_train[train_idx], X_train[val_idx]
         y_fold_train, y_fold_val = y_train[train_idx], y_train[val_idx]
         
         if apply_smote:
-            X_fold_train, y_fold_train = SMOTE(random_state=42).fit_resample(X_fold_train, y_fold_train)
+            X_fold_train, y_fold_train = SMOTE(random_state=random_state).fit_resample(X_fold_train, y_fold_train)
         
         for model_key, config in enabled_models.items():
-            logging.info(f"  Running {config['name']} on fold {fold+1}...")
+            logging.info(f"  Initial evaluation of {config['name']} on fold {fold+1}...")
             try:
                 fold_result = config['function'](
                     X_fold_train, y_fold_train, X_fold_val, y_fold_val,
-                    tune_hyperparams=False, params=None, verbose=True
+                    tune_hyperparams=False, params=None, verbose=False
                 )
                 
                 if fold_result.get('skipped', False):
                     logging.info(f"  {config['name']} was skipped on fold {fold+1}")
                     model_fold_accuracies[model_key].append(0.0)
-                    oof_probs[model_key][val_idx] = np.full((len(val_idx), n_classes), 1.0/n_classes)
                 else:
                     accuracy = fold_result['accuracy']
                     logging.info(f"  {config['name']} fold {fold+1} accuracy: {accuracy:.4f}")
                     model_fold_accuracies[model_key].append(accuracy)
-                    oof_probs[model_key][val_idx] = fold_result['predicted_probabilities']
                     
             except Exception as e:
                 logging.error(f"Error running {config['name']} on fold {fold+1}: {e}")
                 model_fold_accuracies[model_key].append(0.0)
-                oof_probs[model_key][val_idx] = np.full((len(val_idx), n_classes), 1.0/n_classes)
 
     # Calculate average accuracies and filter models
     model_avg_accuracies = {k: np.mean(v) for k, v in model_fold_accuracies.items()}
@@ -332,53 +329,93 @@ def train_hierarchical_layer(
     if not passed_models:
         raise ValueError(f"No models met the accuracy threshold of {accuracy_threshold*100:.1f}%.")
 
-    # STAGE 2: Hyperparameter tuning only for passed models
+    # STAGE 2: Hyperparameter tuning or configuration for passed models
     best_params = {}
     if tune_hyperparams:
         logging.info("STAGE 2: Tuning hyperparameters for filtered models...")
         
-        X_train_hyper, X_test_hyper, y_train_hyper, y_test_hyper = train_test_split(
+        X_train_tune, X_val_tune, y_train_tune, y_val_tune = train_test_split(
             X_train, y_train, test_size=0.2, random_state=101, stratify=y_train
         )
         
         for model_key in passed_models:
             config = enabled_models[model_key]
-            logging.info(f"Tuning {config['name']} hyperparameters...")
             
-            try:
-                if model_key == 'tabpfn':
-                    # Special handling for TabPFN: call its own tuning logic
-                    result = config['function'](
-                        X_train_hyper, y_train_hyper, X_test_hyper, y_test_hyper,
-                        tune_hyperparams=True,
-                        max_time_options=config['tune_params']['max_time_options'],
-                        verbose=True
-                    )
-                    best_params[model_key] = result['params']
-                else:
-                    # Standard tuning for other models
-                    result = config['function'](
-                        X_train_hyper, y_train_hyper, X_test_hyper, y_test_hyper,
-                        tune_hyperparams=True, verbose=True, **config['tune_params']
-                    )
-                    best_params[model_key] = result['params']
+            # Special handling for TabPFN - no tuning, just use the highest max_time
+            if model_key == 'tabpfn':
+                max_time = max(config['max_time_options'])
+                best_params[model_key] = {'max_time': max_time}
+                logging.info(f"TabPFN will use max_time = {max_time} (no tuning needed)")
+                continue
                 
+            # Standard tuning for other models
+            logging.info(f"Tuning {config['name']} hyperparameters...")
+            try:
+                tune_result = config['function'](
+                    X_train_tune, y_train_tune, X_val_tune, y_val_tune,
+                    tune_hyperparams=True, verbose=True, **config['tune_params']
+                )
+                best_params[model_key] = tune_result['params']
                 logging.info(f"Best {config['name']} params: {best_params[model_key]}")
                 
             except Exception as e:
                 logging.error(f"Error tuning {config['name']}: {e}")
                 best_params[model_key] = None
     else:
+        # If not tuning, TabPFN still gets highest max_time
         best_params = {model_key: None for model_key in passed_models}
+        if 'tabpfn' in passed_models:
+            max_time = max(enabled_models['tabpfn']['max_time_options'])
+            best_params['tabpfn'] = {'max_time': max_time}
+            logging.info(f"TabPFN will use max_time = {max_time}")
 
-    # Create meta training features from out-of-fold predictions
+    # STAGE 3: Generate OOF predictions using tuned models
+    logging.info("STAGE 3: Generating OOF predictions using tuned models...")
+    
+    oof_probs = {}
+    for model_key in passed_models:
+        oof_probs[model_key] = np.zeros((n_train_samples, n_classes))
+    
+    for fold, (train_idx, val_idx) in enumerate(skf.split(X_train, y_train)):
+        logging.info(f"Processing Fold {fold+1}/{n_splits} for OOF generation")
+        
+        X_fold_train, X_fold_val = X_train[train_idx], X_train[val_idx]
+        y_fold_train, y_fold_val = y_train[train_idx], y_train[val_idx]
+        
+        if apply_smote:
+            X_fold_train, y_fold_train = SMOTE(random_state=random_state).fit_resample(X_fold_train, y_fold_train)
+        
+        for model_key in passed_models:
+            config = enabled_models[model_key]
+            logging.info(f"  Running tuned {config['name']} on fold {fold+1} for OOF...")
+            
+            try:
+                fold_result = config['function'](
+                    X_fold_train, y_fold_train, X_fold_val, y_fold_val,
+                    tune_hyperparams=False, params=best_params[model_key], verbose=False
+                )
+                
+                if fold_result.get('skipped', False):
+                    logging.info(f"  Tuned {config['name']} was skipped on fold {fold+1}")
+                    # Fill with uniform probabilities as fallback
+                    oof_probs[model_key][val_idx] = np.full((len(val_idx), n_classes), 1.0/n_classes)
+                else:
+                    logging.info(f"  Storing {config['name']} OOF predictions for fold {fold+1}")
+                    oof_probs[model_key][val_idx] = fold_result['predicted_probabilities']
+                    
+            except Exception as e:
+                logging.error(f"Error generating OOF for {config['name']} on fold {fold+1}: {e}")
+                oof_probs[model_key][val_idx] = np.full((len(val_idx), n_classes), 1.0/n_classes)
+
+    # Create meta training features from OOF predictions of tuned models
     meta_feature_list = [oof_probs[model_key] for model_key in passed_models]
     meta_X_train = np.hstack(meta_feature_list)
     logging.info(f"Meta training features shape: {meta_X_train.shape}")
 
-    # STAGE 3: Train final models on full training data
-    logging.info("STAGE 3: Training final models on full training data...")
+    # STAGE 4: Train final models on full training data with tuned parameters
+    logging.info("STAGE 4: Training final models on full training data...")
     test_results = {}
+    
     for model_key in passed_models:
         config = enabled_models[model_key]
         logging.info(f"Training final {config['name']} model on full training data...")
@@ -397,7 +434,7 @@ def train_hierarchical_layer(
             logging.error(f"Error training final {config['name']} model: {e}")
             test_results[model_key] = np.full((X_test.shape[0], n_classes), 1.0/n_classes)
 
-    # Create meta test features
+    # Create meta test features from tuned models
     meta_test_feature_list = [test_results[model_key] for model_key in passed_models]
     meta_X_test = np.hstack(meta_test_feature_list)
     logging.info(f"Meta test features shape: {meta_X_test.shape}")
@@ -588,7 +625,6 @@ def train_hierarchical_coordinate_layer(
     best_params = None
     if tune_hyperparams:
         logging.info("STAGE 2: Tuning hyperparameters for the best model...")
-        
         X_train_hyper, X_test_hyper, y_train_hyper_lat, y_test_hyper_lat = train_test_split(
             X_train, y_train_lat, test_size=0.2, random_state=101
         )
@@ -598,47 +634,47 @@ def train_hierarchical_coordinate_layer(
         _, _, y_train_hyper_coords, y_test_hyper_coords = train_test_split(
             X_train, y_train_coords, test_size=0.2, random_state=101
         )
-        
         config = enabled_models[best_model]
         logging.info(f"Tuning {config['name']} hyperparameters...")
-        
         try:
-            if config['prediction_type'] == 'sequential':
-                # For sequential models, tune on latitude prediction
+            if best_model == 'tabpfn':
+                # For TabPFN, just set max_time to highest value, no tuning
+                max_time = max(config.get('tune_params', {}).get('max_time_options', [30, 60, 120, 180]))
+                best_params = {'max_time': max_time}
+                logging.info(f"TabPFN will use max_time = {max_time} (no tuning needed)")
+            elif config['prediction_type'] == 'sequential':
                 tune_params = config['tune_params'].copy()
                 tune_params.update({
                     'tune_hyperparams': True,
                     'verbose': True
                 })
-                
                 result = config['function'](
                     X_train_hyper, y_train_hyper_lat, X_test_hyper, y_test_hyper_lat,
                     **tune_params
                 )
-                
+                best_params = result.get('params')
             elif config['prediction_type'] == 'xyz':
                 tune_params = config['tune_params'].copy()
                 tune_params.update({
                     'tune_hyperparams': True,
                     'verbose': True
                 })
-                
-                if best_model == 'tabpfn':
-                    # Special handling for TabPFN: call its own tuning logic
-                    result = config['function'](
-                        X_train_hyper, y_train_hyper_coords, X_test_hyper, y_test_hyper_coords,
-                        tune_hyperparams=True,
-                        max_time_options=tune_params['max_time_options'],
-                        verbose=True
-                    )
-                    best_params = result.get('params')
-            
-            if best_params is None and 'result' in locals():
+                result = config['function'](
+                    X_train_hyper, y_train_hyper_coords, X_test_hyper, y_test_hyper_coords,
+                    **tune_params
+                )
                 best_params = result.get('params')
             logging.info(f"Best {config['name']} params: {best_params}")
-            
         except Exception as e:
             logging.error(f"Error tuning {config['name']}: {e}")
+            best_params = None
+    else:
+        # If not tuning, TabPFN still gets highest max_time
+        if best_model == 'tabpfn':
+            max_time = max(enabled_models['tabpfn'].get('tune_params', {}).get('max_time_options', [30, 60, 120, 180]))
+            best_params = {'max_time': max_time}
+            logging.info(f"TabPFN will use max_time = {max_time}")
+        else:
             best_params = None
 
     # STAGE 3: Final training with tuned parameters
