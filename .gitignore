@@ -33,6 +33,5 @@
 /report/supplementary
 /report/workflows
 
-/results/metasub
 /results/metasub/processed_metasub.csv
 /results/metasub/tax_metasub_data.csv
