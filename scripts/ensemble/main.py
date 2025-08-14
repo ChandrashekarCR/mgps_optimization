@@ -922,9 +922,9 @@ def error_calc(test_conts,pred_conts,test_city,pred_city,test_lat,pred_lat,test_
     error_df['coord_error'] = haversine_distance(error_df['true_lat'],error_df['true_lon'],error_df['pred_lat'],error_df['pred_lon'])
 
     # Print the distance error statistics
-    print(f'The median distance error is {np.median(error_df['coord_error'].values)}')
-    print(f'The mean distance error is {np.mean(error_df['coord_error'].values)}')
-    print(f'The max distance error is {np.max(error_df['coord_error'].values)}')
+    print(f"The median distance error is {np.median(error_df['coord_error'].values)}")
+    print(f"The mean distance error is {np.mean(error_df['coord_error'].values)}")
+    print(f"The max distance error is {np.max(error_df['coord_error'].values)}")
 
     # Step 3: Group into 4 categories
     def group_label(row):

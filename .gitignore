@@ -1,21 +1,28 @@
-/data
-/papers
-/scripts/XBNet
+# ignore bin files
 /bin
 
-/lab_notes/introduction
-/lab_notes/methods
-/lab_notes/results
-/lab_notes/main_mgps_notes_28032025.tex
+# data files to ignore
+/data/geopandas
+/data/metasub/metasub_global_results.csv
+/data/metasub/After_process_megares_amr_class_rpkmg.csv
+/data/metasub/data/metasub/MetaSUB City Metadata - Sheet1 new.csv
 
-/lab_notes/daily_notes/research_log.aux
-/lab_notes/daily_notes/research_log.log
-/lab_notes/daily_notes/research_log.fdb_latexmk
-/lab_notes/daily_notes/research_log.tex
-/lab_notes/daily_notes/research_log.toc
-/lab_notes/daily_notes/research_log.out
-/lab_notes/daily_notes/research_log.fls
+# ignore lab_notes
+/lab_notes/research_log.aux
+/lab_notes/research_log.log
+/lab_notes/research_log.fdb_latexmk
+/lab_notes/research_log.tex
+/lab_notes/research_log.toc
+/lab_notes/research_log.out
+/lab_notes/research_log.fls
 
+
+
+/papers
+/.vscode
+
+
+# ignore report files
 /report/abstract
 /report/discussions
 /report/images
@@ -33,5 +40,6 @@
 /report/supplementary
 /report/workflows
 
+# ignore metasub results
 /results/metasub/processed_metasub.csv
 /results/metasub/taxonomic_info.csv
