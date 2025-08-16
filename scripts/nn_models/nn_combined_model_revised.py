@@ -7,6 +7,7 @@ import pandas as pd
 from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import LabelEncoder, StandardScaler
 from sklearn.metrics import accuracy_score, classification_report, mean_squared_error, mean_absolute_error, r2_score
+from sklearn.model_selection import StratifiedShuffleSplit
 import time
 import optuna
 from optuna.trial import TrialState
@@ -15,6 +16,13 @@ from optuna.pruners import MedianPruner
 
 # --- Data processing (reuse from nn_model_revised.py) ---
 def process_data_hierarchical(df):
+    """
+    Processes the input DataFrame for hierarchical prediction.
+    - Extracts continuous features
+    - Encodes continent and city labels
+    - Computes and scales coordinates
+    - Returns processed arrays and encoders
+    """
     cont_cols = [col for col in df.columns if col not in [
         'latitude', 'longitude',
         'latitude_rad', 'longitude_rad', 'x', 'y', 'z',
@@ -25,6 +33,7 @@ def process_data_hierarchical(df):
     y_continent = continent_encoder.fit_transform(df['continent'].values)
     city_encoder = LabelEncoder()
     y_city = city_encoder.fit_transform(df['city'].values)
+    # Compute cartesian coordinates if not present
     if not all(col in df.columns for col in ['x', 'y', 'z']):
         df['latitude_rad'] = np.deg2rad(df['latitude'])
         df['longitude_rad'] = np.deg2rad(df['longitude'])
@@ -52,7 +61,10 @@ def process_data_hierarchical(df):
     }
 
 def hierarchical_split(X_cont, y_continent, y_city, y_coords, y_lat, y_lon, test_size=0.2, random_state=42):
-    from sklearn.model_selection import StratifiedShuffleSplit
+    """
+    Stratified split for hierarchical data, keeping track of indices.
+    Returns train/test splits for all targets.
+    """
     sss = StratifiedShuffleSplit(n_splits=1, test_size=test_size, random_state=random_state)
     train_idx, test_idx = next(sss.split(X_cont, y_continent))
     return {
@@ -74,6 +86,10 @@ def hierarchical_split(X_cont, y_continent, y_city, y_coords, y_lat, y_lon, test
 
 # --- Dataset ---
 class HierarchicalDataset(Dataset):
+    """
+    PyTorch Dataset for hierarchical model training.
+    Returns features and all targets for each sample.
+    """
     def __init__(self, X, y_cont, y_city, y_coords):
         self.X = X
         self.y_cont = y_cont
@@ -93,6 +109,12 @@ class HierarchicalDataset(Dataset):
 
 # --- Modular Combined Model ---
 class CombinedHierarchicalNet(nn.Module):
+    """
+    Combined neural network for hierarchical prediction:
+    - Continent branch
+    - City branch (uses continent probabilities)
+    - Coordinate branch (uses continent and city probabilities)
+    """
     def __init__(
         self,
         input_dim,
@@ -122,6 +144,9 @@ class CombinedHierarchicalNet(nn.Module):
         )
 
     def _make_branch(self, in_dim, hidden_dims, out_dim, dropout_range, use_bn, output_activation=None):
+        """
+        Helper to build a sequential branch with batch norm, dropout, and activation.
+        """
         layers = []
         dims = [in_dim] + hidden_dims
         dropouts = np.linspace(dropout_range[0], dropout_range[1], len(hidden_dims))
@@ -137,6 +162,10 @@ class CombinedHierarchicalNet(nn.Module):
         return nn.Sequential(*layers)
 
     def forward(self, x):
+        """
+        Forward pass through all branches.
+        Returns logits/probabilities for continent, city, and coordinates.
+        """
         # Continent
         cont_logits = self.continent_branch(x)
         cont_probs = F.softmax(cont_logits, dim=1)
@@ -156,12 +185,15 @@ def train_combined_hierarchical(
     lr=1e-3, weight_decay=1e-5, epochs=600, early_stopping_steps=50,
     print_every=10,
     continent_class_weights=None,
-    city_class_weights=None
+    city_class_weights=None,
 ):
+    """
+    Trains the combined hierarchical model.
+    Supports weighted loss for each branch and early stopping.
+    """
     model = model.to(device)
     # Add optimizer definition here
     optimizer = torch.optim.Adam(model.parameters(), lr=lr, weight_decay=weight_decay)
-    # FIX: Only pass tensor weights to CrossEntropyLoss, not scalar weights
     criterion_cont = nn.CrossEntropyLoss(weight=continent_class_weights)
     criterion_city = nn.CrossEntropyLoss(weight=city_class_weights)
     criterion_coord = nn.MSELoss()
@@ -252,6 +284,10 @@ def train_combined_hierarchical(
 
 # --- Evaluation ---
 def evaluate_combined(model, loader, device, coord_scaler=None):
+    """
+    Evaluates the model on a loader.
+    Returns accuracy for continent/city and regression metrics for coordinates.
+    """
     model.eval()
     all_cont_preds, all_city_preds, all_coord_preds = [], [], []
     all_cont_true, all_city_true, all_coord_true = [], [], []
@@ -286,7 +322,7 @@ def evaluate_combined(model, loader, device, coord_scaler=None):
     print("City accuracy:", acc_city)
     print("Coordinate RMSE:", np.sqrt(mse_coord))
     print("Coordinate MAE:", mae_coord)
-    print("Coordinate R2:", r2_coord)
+    print("Coordinate R2:", r2_coord) # R2 values before converting to lat/lon
     return {
         "continent_accuracy": acc_cont,
         "city_accuracy": acc_city,
@@ -346,6 +382,10 @@ def compute_in_radius_metrics(y_true, y_pred, thresholds=None):
     return results
 
 class CombinedModelTuner:
+    """
+    Optuna tuner for the combined hierarchical model.
+    Tunes architecture, dropout, learning rate, and loss weights.
+    """
     def __init__(self, train_loader, val_loader, device, input_dim, num_continents, num_cities, coord_dim=3, n_trials=20, timeout=1200):
         self.train_loader = train_loader
         self.val_loader = val_loader
@@ -360,6 +400,10 @@ class CombinedModelTuner:
         self.best_score = None
 
     def objective(self, trial):
+        """
+        Objective function for Optuna hyperparameter search.
+        Uses negative coordinate RMSE for maximization.
+        """
         hidden_dims_cont = trial.suggest_categorical("hidden_dims_cont", [[128, 64], [256, 128, 64]])
         hidden_dims_city = trial.suggest_categorical("hidden_dims_city", [[256, 128, 64], [128, 64]])
         hidden_dims_coord = trial.suggest_categorical("hidden_dims_coord", [[256, 128, 64], [128, 64]])
@@ -407,6 +451,9 @@ class CombinedModelTuner:
         return -results['coordinate_rmse']
 
     def tune(self):
+        """
+        Runs Optuna study to find best hyperparameters.
+        """
         study = optuna.create_study(direction='maximize')
         study.optimize(self.objective, n_trials=self.n_trials, timeout=self.timeout)
         self.best_params = study.best_params
@@ -415,8 +462,8 @@ class CombinedModelTuner:
         print(f"Best parameters: {self.best_params}")
         return self.best_params, self.best_score
 
-# --- Example usage ---
 if __name__ == "__main__":
+    
     # Load and process data
     df = pd.read_csv("/home/chandru/binp37/results/metasub/metasub_training_testing_data.csv")
     processed = process_data_hierarchical(df)
@@ -430,6 +477,7 @@ if __name__ == "__main__":
     y_train_cont, y_test_cont = split['y_cont_train'], split['y_cont_test']
     y_train_city, y_test_city = split['y_city_train'], split['y_city_test']
     y_train_coords, y_test_coords = split['y_coords_train'], split['y_coords_test']
+    
     # DataLoaders
     batch_size = 128
     train_ds = HierarchicalDataset(X_train, y_train_cont, y_train_city, y_train_coords)
@@ -496,10 +544,15 @@ if __name__ == "__main__":
         city_weight = 0.5
         coord_weight = 0.2
 
-    # Class weights for continent (inverse frequency)
-    class_counts = np.bincount(y_train_cont)
-    continent_weights = torch.tensor(1.0 / (class_counts + 1e-6), dtype=torch.float32)
-    continent_weights = continent_weights / continent_weights.sum()
+    # Class weights for cross-entropy losses
+    continent_class_weights = torch.tensor(
+        [1.0 / np.sum(y_train_cont == i) for i in range(len(processed['continents']))],
+        dtype=torch.float32, device=device
+    )
+    city_class_weights = torch.tensor(
+        [1.0 / np.sum(y_train_city == i) for i in range(len(processed['cities']))],
+        dtype=torch.float32, device=device
+    )
 
     # Train
     model, train_losses, val_losses = train_combined_hierarchical(
@@ -508,8 +561,8 @@ if __name__ == "__main__":
         city_weight=city_weight,
         coord_weight=coord_weight,
         lr=lr, weight_decay=weight_decay, epochs=600, early_stopping_steps=50, print_every=10,
-        continent_class_weights=continent_weights,  # <-- pass tensor hereopyLoss
-        city_class_weights=None
+        continent_class_weights=continent_class_weights, 
+        city_class_weights=city_class_weights,
     )
     # Evaluate
     results = evaluate_combined(model, test_loader, device, coord_scaler=coord_scaler)
@@ -539,6 +592,13 @@ if __name__ == "__main__":
         pred_latlon[:, 0], pred_latlon[:, 1]
     )
     print("\n===== Coordinate Error Statistics =====")
+    # Calculate R2, MAE and RMSE
+    r2 = r2_score(true_latlon, pred_latlon)
+    rmse = np.sqrt(mean_squared_error(true_latlon, pred_latlon))
+    mae = mean_absolute_error(true_latlon, pred_latlon)
+    print(f"Coordinate Prediction Metrics (degrees):") 
+    print(f"R2 Score: {r2:.4f}") # R2 values after converting to lat/lon
+    print(f"\nDistance Error Statistics:")
     print(f"Median distance error: {np.median(coord_errors):.2f} km")
     print(f"Mean distance error: {np.mean(coord_errors):.2f} km")
     print(f"Max distance error: {np.max(coord_errors):.2f} km")

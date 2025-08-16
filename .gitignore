@@ -43,3 +43,6 @@
 # ignore metasub results
 /results/metasub/processed_metasub.csv
 /results/metasub/taxonomic_info.csv
+
+#ignore scripts
+/scripts/metasub

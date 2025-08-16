@@ -18,17 +18,19 @@ from optuna.samplers import TPESampler
 from optuna.pruners import MedianPruner
 from torch.nn.utils import clip_grad_norm_
 
-
-# Create a dynamic architecutre in pytorch
-# First model - In this model, I made a neural network separate for each hierarchy. The same architechture is followed for 
-# continent level prediction, city level prediction, cordinate level prediction.
-
-# Device
+# Device configuration: Use GPU if available, else fallback to CPU
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-# Data processing function for hierarchical model
+# =========================
+# Data Processing Functions
+# =========================
+
 def process_data_hierarchical(df):
-    """Process data for hierarchical prediction"""
+    """Process data for hierarchical prediction.
+    - Encodes categorical variables (continent, city)
+    - Scales continuous features and coordinates
+    - Returns processed arrays and encoders
+    """
     # Process continuous features
     cont_cols = [col for col in df.columns if col not in [
         'latitude', 'longitude',
@@ -82,8 +84,9 @@ def process_data_hierarchical(df):
         'cities': cities
     }
 
-# Hierarchial split to keep track of the indices
+# Hierarchical split to keep track of the indices for train/test
 def hierarchical_split(X_cont, y_continent, y_city, y_coords, y_lat, y_lon, test_size=0.2, random_state=42):
+    """Perform stratified split keeping the hierarchy split recorded."""
     
     sss = StratifiedShuffleSplit(n_splits=1, test_size=test_size, random_state=random_state)
     train_idx, test_idx = next(sss.split(X_cont, y_continent))
@@ -105,10 +108,16 @@ def hierarchical_split(X_cont, y_continent, y_city, y_coords, y_lat, y_lon, test
         'test_idx': test_idx
     }
 
-# Process data
+# =========================
+# Load and Prepare Data
+# =========================
+
+# Load dataset
 df = pd.read_csv("/home/chandru/binp37/results/metasub/metasub_training_testing_data.csv")
+# Process dataset for hierarchical modeling
 processed_data = process_data_hierarchical(df)
 
+# Extract processed features and targets
 X_cont = processed_data['x_cont']
 y_cont = processed_data['y_continent']
 y_cities = processed_data['y_city']
@@ -116,7 +125,7 @@ y_coords = processed_data['y_coords']
 y_latitude = processed_data['y_latitude']
 y_longitude = processed_data['y_longitude']
 
-
+# Split data into train and test sets
 split_data = hierarchical_split(
     X_cont,
     y_cont,
@@ -126,7 +135,7 @@ split_data = hierarchical_split(
     processed_data['y_longitude']
 )
 
-# Original feautres
+# Original features
 X_train_cont, X_test_cont = split_data['X_train'], split_data['X_test']
 # Train and test for continent
 y_train_cont, y_test_cont = split_data['y_cont_train'], split_data['y_cont_test']
@@ -139,11 +148,15 @@ y_train_lon, y_test_lon = split_data['y_lon_train'], split_data['y_lon_test']
 # Train and test for co-ordinates
 y_train_coords, y_test_coords = split_data['y_coords_train'],  split_data['y_coords_test']
 
+# =========================
+# Neural Network Architectures
+# =========================
 
-
-# Neural network architecture
-# ContinentLayer
 class ClassificationLayer(nn.Module):
+    """
+    Classification neural network layer for continent/city prediction.
+    Supports dynamic architecture, batch normalization, and dropout.
+    """
     def __init__(self, input_dim, output_dim, hidden_dim = [128,64], use_batch_norm=True,
                   initial_dropout:float = 0.2, final_dropout:float =0.7, random_state=42):
         super(ClassificationLayer,self).__init__()
@@ -226,8 +239,11 @@ class ClassificationLayer(nn.Module):
 
         return output
 
-# Coordinate Layer
 class CoordinateLayer(nn.Module):
+    """
+    Regression neural network layer for coordinate prediction.
+    Supports dynamic architecture, batch normalization, and dropout.
+    """
     def __init__(self, input_dim, output_dim, hidden_dim=[256, 128, 64],
                  use_batch_norm=True, initial_dropout=0.2, final_dropout=0.5, random_state=42):
         super(CoordinateLayer,self).__init__()
@@ -262,8 +278,14 @@ class CoordinateLayer(nn.Module):
             x = self.dropouts[i](x)
         return self.layers[-1](x)  # Output layer: no activation
 
-# Dataset class for classification
+# =========================
+# Dataset Class for PyTorch
+# =========================
+
 class TrainDataset(Dataset):
+    """
+    Custom PyTorch Dataset for training classification/regression models.
+    """
     def __init__(self, features, targets):
         self.features = features
         self.targets = targets
@@ -272,14 +294,21 @@ class TrainDataset(Dataset):
         return self.features.shape[0]
     
     def __getitem__(self, idx):
+        # Returns a dictionary for each sample
         return {
             'x': torch.tensor(self.features[idx], dtype=torch.float),
             'n_classes': torch.tensor(self.targets[idx], dtype=torch.long),
             'y': torch.tensor(self.targets[idx], dtype=torch.float)
         }
 
-# Default parameters for the neural network
+# =========================
+# Default Parameters
+# =========================
+
 def default_params():
+    """
+    Returns default hyperparameters for neural network models.
+    """
     return {
         "input_dim": 200,
         "hidden_dim": [128, 64],
@@ -298,8 +327,15 @@ def default_params():
         "random_state": 42,
     }
 
-# Neural network tuner using Optuna
+# =========================
+# Optuna Hyperparameter Tuner
+# =========================
+
 class NNTuner:
+    """
+    Neural network hyperparameter tuner using Optuna.
+    Supports both classification and regression tasks.
+    """
     def __init__(self, X_train, y_train, X_val=None, y_val=None, params=None, device="cpu", n_trials=20, timeout=1200):
         self.X_train = X_train
         self.y_train = y_train
@@ -313,6 +349,9 @@ class NNTuner:
         self.best_score = None
 
     def objective(self, trial):
+        """
+        Objective function for Optuna hyperparameter search.
+        """
         params = self.params.copy()
         params.update({
             "hidden_dim": trial.suggest_categorical(
@@ -350,6 +389,9 @@ class NNTuner:
             return -val_metrics['rmse']
 
     def tune(self):
+        """
+        Runs Optuna study to find best hyperparameters.
+        """
         study = optuna.create_study(direction='maximize')
         study.optimize(self.objective, n_trials=self.n_trials, timeout=self.timeout)
         
@@ -361,7 +403,15 @@ class NNTuner:
         
         return self.best_params, self.best_score
     
+# =========================
+# Neural Network Classifier
+# =========================
+
 class NNClassifier:
+    """
+    Neural network classifier for continent/city prediction.
+    Supports training, evaluation, and prediction.
+    """
     def __init__(self, params=None, device = "cpu",model=None):
         if params is None:
             self.params = params
@@ -595,56 +645,61 @@ class NNClassifier:
             'probabilities': np.array(all_preds_prob)
         }
     
-def run_nn_classifier(X_train,y_train, X_test,y_test,device="cuda",
-                      tune_hyperparams=False,params=None,
-                          n_trials=20,timeout=1200):
-        # Use default if params not given
-        if params is None:
-            params = default_params()
-        else:
-            default = default_params()
-            default.update(params)
-            params = default
+def run_nn_classifier(X_train, y_train, X_test, y_test, device="cuda",
+                      tune_hyperparams=False, params=None,
+                          n_trials=20, timeout=1200):
+    """
+    Utility function to train and evaluate NNClassifier.
+    Optionally tunes hyperparameters using Optuna.
+    """
+    # Use default if params not given
+    if params is None:
+        params = default_params()
+    else:
+        default = default_params()
+        default.update(params)
+        params = default
 
-        # Update input dimension based on actual data
-        params['input_dim'] = X_train.shape[1]
-        params['output_dim'] = len(np.unique(y_train))
+    # Update input dimension based on actual data
+    params['input_dim'] = X_train.shape[1]
+    params['output_dim'] = len(np.unique(y_train))
 
-        
-        if tune_hyperparams:
-            # Split validation set from training data
-            X_train_split, X_val, y_train_split, y_val = train_test_split(
-                X_train,y_train, test_size=0.2, random_state=42, stratify=y_train
-            )
+    # Only run tuner if requested
+    if tune_hyperparams:
+        # Split validation set from training data
+        X_train_split, X_val, y_train_split, y_val = train_test_split(
+            X_train, y_train, test_size=0.2, random_state=42, stratify=y_train
+        )
 
-            tuner = NNTuner(X_train_split, y_train_split, X_val, y_val, 
-                                   params, device=device, n_trials=n_trials, timeout=timeout)
-            best_params, best_score = tuner.tune()
-            params.update(best_params)
-            print("Using best params:", params)
+        tuner = NNTuner(X_train_split, y_train_split, X_val, y_val,
+                        params, device=device, n_trials=n_trials, timeout=timeout)
+        best_params, best_score = tuner.tune()
+        params.update(best_params)
+        print("Using best params:", params)
 
-        # Train final model on full training data
-        model = NNClassifier(params, device=device)
-        model.fit(X_train, y_train)
+    # Train final model on full training data
+    model = NNClassifier(params, device=device)
+    model.fit(X_train, y_train)
 
-        results = model.evaluate(X_test, y_test)
+    results = model.evaluate(X_test, y_test)
 
-        # Determine class names for the report
-        if params.get('output_dim', None) == 7:
-            # Assume continent classification
-            target_names = processed_data['continents']
-        else:
-            # Assume city classification
-            target_names = processed_data['cities']
+    # Determine class names for the report
+    if params.get('output_dim', None) == 7:
+        # Assume continent classification
+        target_names = processed_data['continents']
+    else:
+        # Assume city classification
+        target_names = processed_data['cities']
 
-        print("\nClassification Report:")
-        print(classification_report(
-            results['targets'],
-            results['predictions'],
-            target_names=target_names
-        ))
-        print("\nAccuracy:", results['class_accuracy'])
-        return {
+    print("\nClassification Report:")
+    print(classification_report(
+        results['targets'],
+        results['predictions'],
+        target_names=target_names
+    ))
+    print("\nAccuracy:", results['class_accuracy'])
+
+    return {
         'model': model,
         'predictions': results['predictions'],
         'predicted_probabilities': results['probabilities'],
@@ -652,7 +707,15 @@ def run_nn_classifier(X_train,y_train, X_test,y_test,device="cuda",
         'params': params
     }
 
+# =========================
+# Neural Network Regressor
+# =========================
+
 class NNRegressor:
+    """
+    Neural network regressor for coordinate prediction.
+    Supports training, evaluation, and prediction.
+    """
     def __init__(self, params=None, device="cpu"):
         if params is None:
             self.params = default_params()
@@ -903,7 +966,7 @@ def run_nn_regressor(X_train, y_train, X_test, y_test, device="cuda",
 # Distance between two points on the earth
 def haversine_distance(lat1,lon1,lat2,lon2):
     """
-    Calculate the great circle distance between two points on the earth
+    Calculate the great circle distance between two points on the earth (in km).
     """
     # Radius of the earth
     R = 6371.0
@@ -922,10 +985,9 @@ def haversine_distance(lat1,lon1,lat2,lon2):
 
     return R * c # in kilometers
 
-# Converting cartesian co-ordinates values to latitude and longitude
 def xyz_to_latlon(xyz_coords):
     """
-    Convert the XYZ coordinates to latitude and longitude
+    Convert 3D cartesian coordinates to latitude and longitude.
     """
     x,y,z = xyz_coords[:,0],xyz_coords[:,1],xyz_coords[:,2]
 
@@ -939,18 +1001,20 @@ def xyz_to_latlon(xyz_coords):
 
     return np.stack([lat_deg,lon_deg],axis=1)
 
+# =========================
+# Hierarchical Model Pipeline
+# =========================
+
 def run_hierarchical_nn_model(X_train, X_test, y_train_cont, y_test_cont, 
 
                               y_train_city, y_test_city, y_train_coords, y_test_coords,
                               device="cuda", tune_hyperparams=False, n_trials=20, timeout=1200):
     """
-    Run hierarchical neural network model that:
+    Runs a hierarchical neural network model:
     1. Predicts continents
     2. Uses continent probabilities to help predict cities
     3. Uses both continent and city probabilities to predict coordinates
-    
-    Returns:
-        Dictionary with all models and predictions
+    Returns dictionary with all models and predictions.
     """
     print("\n===== HIERARCHICAL MODEL: LEVEL 1 - CONTINENT PREDICTION =====")
     # Step 1: Train and predict continents
@@ -1057,7 +1121,10 @@ def run_hierarchical_nn_model(X_train, X_test, y_train_cont, y_test_cont,
     }
 
 
-# Run the hierarchical model
+# =========================
+# Run Hierarchical Model
+# =========================
+
 hierarchical_results = run_hierarchical_nn_model(
     X_train_cont, X_test_cont,
     y_train_cont, y_test_cont,
@@ -1069,10 +1136,18 @@ hierarchical_results = run_hierarchical_nn_model(
     timeout=100
 )
 
+# =========================
+# Error Calculation & Metrics
+# =========================
 
-# Error calculations
 def error_calc(test_conts, pred_conts, test_city, pred_city, test_lat, test_lon, pred_lat, pred_lon):
-    # Notice the corrected parameter order to match function implementation
+    """
+    Calculates error metrics for hierarchical model predictions:
+    - Classification correctness
+    - Haversine distance errors
+    - Grouped error statistics
+    - In-radius accuracy metrics
+    """
     error_df = pd.DataFrame({
         'true_cont': test_conts,
         'pred_cont': pred_conts,
@@ -1101,9 +1176,9 @@ def error_calc(test_conts, pred_conts, test_city, pred_city, test_lat, test_lon,
     # Step 2: Calculate the haversine distance
     error_df['coord_error'] = haversine_distance(error_df['true_lat'], error_df['true_lon'], error_df['pred_lat'], error_df['pred_lon'])
 
-    print(f'The median distance error is {np.median(error_df['coord_error'].values)}')
-    print(f'The mean distance error is {np.mean(error_df['coord_error'].values)}')
-    print(f'The max distance error is {np.max(error_df['coord_error'].values)}')
+    print(f'The median distance error is {np.median(error_df["coord_error"].values)}')
+    print(f'The mean distance error is {np.mean(error_df["coord_error"].values)}')
+    print(f'The max distance error is {np.max(error_df["coord_error"].values)}')
 
     # Step 3: Group into 4 categories
     def group_label(row):
@@ -1208,7 +1283,14 @@ def error_calc(test_conts, pred_conts, test_city, pred_city, test_lat, test_lon,
     print("In-Radius Accuracy per Continent-City")
     print(cont_city_metrics.round(2))
 
-# Fix coordinate predictions from cartesian to lat/lon
+    # Print the R2, MAE and RMSE for the coordinate predictions
+    from sklearn.metrics import r2_score, mean_squared_error, mean_absolute_error
+    r2 = r2_score(error_df[['true_lat', 'true_lon']].values, error_df[['pred_lat', 'pred_lon']].values)
+    print(f"Coordinate Prediction Metrics (degrees):") # R2 value afetr converting to lat/lon
+    print(f"  R2: {r2:.4f}")
+
+
+# Convert predicted coordinates from cartesian to lat/lon
 predicted_coords = hierarchical_results['coordinate_predictions']
 predicted_latlon = xyz_to_latlon(predicted_coords)
 
@@ -1225,8 +1307,12 @@ error_calc(
     pred_lon=predicted_latlon[:, 1]
 )
 
+# =========================
+# Print Results Summary
+# =========================
+
 print("\n===== HIERARCHICAL MODEL RESULTS SUMMARY =====")
 print(f"Continent Classification Accuracy: {hierarchical_results['continent_accuracy']:.4f}")
 print(f"City Classification Accuracy: {hierarchical_results['city_accuracy']:.4f}")
-print(f"Coordinate Prediction RMSE: {hierarchical_results['coordinate_rmse']:.4f}")
-print(f"Coordinate Prediction R2: {hierarchical_results['coordinate_r2']:.4f}")
+print(f"Coordinate R2: {hierarchical_results['coordinate_r2']:.4f}") # R2 values before converting to lat/lon
+

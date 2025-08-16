@@ -8,6 +8,7 @@ import copy
 import seaborn as sns
 import optuna
 
+# --- Scikit-learn imports for preprocessing and metrics ---
 from sklearn import preprocessing
 from sklearn.metrics import log_loss, classification_report, confusion_matrix, accuracy_score, mean_squared_error
 from sklearn.preprocessing import StandardScaler, PowerTransformer, QuantileTransformer, OneHotEncoder, LabelEncoder
@@ -15,6 +16,7 @@ from sklearn.decomposition import PCA
 from sklearn.model_selection import train_test_split
 from sklearn.utils.class_weight import compute_class_weight
 
+# --- PyTorch imports for deep learning ---
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -26,9 +28,14 @@ import time
 import warnings
 warnings.filterwarnings('ignore')
 
-
-# Enhanced Parameters for Hierarchical Model
+# =========================
+# Default Parameters
+# =========================
 def default_params():
+    """
+    Returns default parameters for hierarchical GrowNet model.
+    Includes architecture, boosting, training, and reproducibility settings.
+    """
     return {
         # === Architecture ===
         "feat_d": 200,             # Input feature size (species abundance, etc.)
@@ -61,10 +68,16 @@ def default_params():
 
 params = default_params()
 
+# =========================
+# Device Setup & Seeding
+# =========================
 device = "cuda" if torch.cuda.is_available() else "cpu"
 print(f"Using device: {device}")
 
 def seed_everything(seed=42):
+    """
+    Sets seeds for reproducibility across numpy, random, torch, and CUDA.
+    """
     random.seed(seed)
     os.environ['PYTHONHASHSEED'] = str(seed)
     np.random.seed(seed)
@@ -74,9 +87,15 @@ def seed_everything(seed=42):
     
 seed_everything(seed=42)
 
+# =========================
+# Dataset Classes
+# =========================
 
-# Enhanced Dataset class for hierarchical targets
 class HierarchicalTrainDataset:
+    """
+    PyTorch-style dataset for hierarchical training.
+    Returns features and all targets for each sample.
+    """
     def __init__(self, features, continent_targets, city_targets, coord_targets):
         self.features = features
         self.continent_targets = continent_targets
@@ -95,6 +114,10 @@ class HierarchicalTrainDataset:
         }
     
 class HierarchicalTestDataset:
+    """
+    PyTorch-style dataset for hierarchical testing/inference.
+    Returns only features for each sample.
+    """
     def __init__(self, features):
         self.features = features
         
@@ -106,8 +129,15 @@ class HierarchicalTestDataset:
             'x': torch.tensor(self.features[idx], dtype=torch.float)
         }
     
-# Enhanced DynamicNet for hierarchical leanring
+# =========================
+# Hierarchical GrowNet Model
+# =========================
+
 class HierarchicalDynamicNet(nn.Module):
+    """
+    Ensemble of weak learners for hierarchical GrowNet.
+    Supports boosting, forward pass, and parameter management.
+    """
     def __init__(self, c0_continent, c0_city, c0_coords, lr):
         super(HierarchicalDynamicNet,self).__init__()
         self.models = []
@@ -216,8 +246,17 @@ class HierarchicalDynamicNet(nn.Module):
         return middle_feat_cum, final_continent, final_city, final_coords
 
 
-# Enhanced MLP for hierarchical prediction following GrowNet architecture
+# =========================
+# Hierarchical MLP (Weak Learner)
+# =========================
+
 class HierarchicalMLP(nn.Module):
+    """
+    MLP for hierarchical prediction.
+    - Continent head
+    - City head (uses continent predictions)
+    - Coordinate head (uses continent and city predictions)
+    """
     def __init__(self, dim_in, dim_hidden1, dim_hidden2, n_continents, n_cities, coord_dim, dropout1, dropout2):
         super(HierarchicalMLP, self).__init__()
         # Input processing
@@ -303,6 +342,9 @@ class HierarchicalMLP(nn.Module):
         return model   
 
 def get_optim(params, lr, weight_decay):
+    """
+    Returns Adam optimizer for given parameters.
+    """
     optimizer = optim.Adam(params, lr, weight_decay=weight_decay)
     return optimizer
 
@@ -311,7 +353,9 @@ def compute_hierarchical_loss(continent_pred, city_pred, coord_pred,
                               continent_target, city_target, coord_target, 
                               continent_class_weights=None, city_class_weights=None,
                               continent_loss_weight=1.0, city_loss_weight=1.0, coord_loss_weight=1.0):
-    
+    """
+    Computes weighted loss for all three hierarchical tasks.
+    """
     continent_loss = F.cross_entropy(continent_pred, torch.argmax(continent_target, dim=1),
                                      weight=continent_class_weights)
     city_loss = F.cross_entropy(city_pred, torch.argmax(city_target, dim=1),
@@ -329,7 +373,10 @@ def compute_hierarchical_loss(continent_pred, city_pred, coord_pred,
 
 def evaluate_hierarchical_model(net_ensemble, test_loader,continent_class_weights_tensor,city_class_weights_tensor,
                                continent_loss_weight=1.0, city_loss_weight=1.0, coord_loss_weight=1.0):
-    """Evaluate the hierarchical model on all tasks"""
+    """
+    Evaluates the hierarchical GrowNet model on all tasks.
+    Returns losses, accuracies, and predictions/targets.
+    """
     net_ensemble.to_eval()
     
     continent_losses = []
@@ -398,9 +445,16 @@ def evaluate_hierarchical_model(net_ensemble, test_loader,continent_class_weight
 
 
 
-# Training function
+# =========================
+# Training Function
+# =========================
+
 def train_hierarchical_grownet(x_data, continent_targets, city_targets, coord_targets, params):
-    """Train the hierarchical GrowNet model"""
+    """
+    Trains the hierarchical GrowNet model.
+    Handles class weights, data splits, boosting, and corrective steps.
+    Returns trained model and test metrics.
+    """
 
     # Continent class weights to deal with data imbalance
     continent_labels_flat = np.argmax(continent_targets, axis=1)
@@ -628,8 +682,15 @@ def train_hierarchical_grownet(x_data, continent_targets, city_targets, coord_ta
     
     return net_ensemble, test_metrics
 
-# --- Hyperparameter Tuning Class for Hierarchical GrowNet ---
+# =========================
+# Hyperparameter Tuning Class
+# =========================
+
 class HierarchicalGrowNetTuner:
+    """
+    Optuna tuner for hierarchical GrowNet.
+    Tunes architecture, boosting, training, and loss weights.
+    """
     def __init__(self, X_train, continent_targets, city_targets, coord_targets, params, device="cpu", n_trials=20, timeout=1200):
         self.X_train = X_train
         self.continent_targets = continent_targets
@@ -643,6 +704,10 @@ class HierarchicalGrowNetTuner:
         self.best_score = None
 
     def objective(self, trial):
+        """
+        Objective function for Optuna hyperparameter search.
+        Uses continent accuracy for maximization.
+        """
         params = self.params.copy()
         # Enforce hierarchical relationship: continent_weight > city_weight > coord_weight
         continent_weight = trial.suggest_float("continent_weight", 1.0, 2.0)
@@ -677,6 +742,9 @@ class HierarchicalGrowNetTuner:
         return val_acc
 
     def tune(self):
+        """
+        Runs Optuna study to find best hyperparameters.
+        """
         study = optuna.create_study(direction='maximize')
         study.optimize(self.objective, n_trials=self.n_trials, timeout=self.timeout)
         self.best_params = study.best_params
@@ -685,9 +753,18 @@ class HierarchicalGrowNetTuner:
         print(f"Best parameters: {self.best_params}")
         return self.best_params, self.best_score
 
-# Data processing function
+# =========================
+# Data Processing Function
+# =========================
+
 def process_hierarchical_data(df):
-    """Process data for hierarchical learning"""
+    """
+    Processes input DataFrame for hierarchical learning.
+    - Extracts features
+    - Encodes continent/city labels (one-hot)
+    - Computes and scales coordinates
+    Returns arrays and encoders.
+    """
     # Separate features and targets
     feature_cols = [col for col in df.columns if col not in ['city', 'continent', 'latitude', 'longitude']]
     x_data = df[feature_cols].values
@@ -723,9 +800,12 @@ def process_hierarchical_data(df):
             continent_encoder, city_encoder,coordinate_encoder)
 
 
-# Process data 
-df = pd.read_csv("/home/chandru/binp37/results/metasub/metasub_training_testing_data.csv")
+# =========================
+# Main Pipeline
+# =========================
 
+# Load and process data
+df = pd.read_csv("/home/chandru/binp37/results/metasub/metasub_training_testing_data.csv")
 x_data, continent_targets, city_targets, coord_targets, continent_encoder, city_encoder, coordinate_encoder = process_hierarchical_data(df)
 
 # Example usage for hyperparameter tuning:
@@ -740,7 +820,10 @@ trained_mode,metrics = train_hierarchical_grownet(x_data,
                                                   coord_targets, params)
 
 
-# Evaluation on the test metrics
+# =========================
+# Evaluation & Error Analysis
+# =========================
+
 print("\nClassification Report - Continent")
 print(classification_report(
     metrics['targets']['continent'],
@@ -784,6 +867,13 @@ def xyz_to_latlon(xyz_coords):
     return np.stack([lat_deg, lon_deg], axis=1)
 
 def error_calc_hierarchical_grownet(metrics, continent_encoder, city_encoder, coord_scaler):
+    """
+    Calculates error metrics for hierarchical GrowNet predictions.
+    - Classification correctness
+    - Haversine distance errors
+    - Grouped error statistics
+    - In-radius accuracy metrics
+    """
     # Prepare error dataframe
     true_cont = np.array(metrics['targets']['continent'])
     pred_cont = np.array(metrics['predictions']['continent'])
@@ -892,6 +982,13 @@ def error_calc_hierarchical_grownet(metrics, continent_encoder, city_encoder, co
     print("In-Radius Accuracy per Continent-City")
     print(cont_city_metrics.round(2))
 
+    # Print the R2, MAE and RMSE for the coordinate predictions, using true coordinates
+    from sklearn.metrics import mean_absolute_error, r2_score
+    true_coords = np.stack([error_df['true_lat'].values, error_df['true_lon'].values]).T
+    pred_coords = np.stack([error_df['pred_lat'].values, error_df['pred_lon'].values]).T
+    r2 = r2_score(true_coords, pred_coords)
+    print(f"Coordinate Prediction Metrics (degrees):") # R2 value after converting to lat/lon
+    print(f"R^2:  {r2:.5f}")
 
 
 # --- Run error calculation for hierarchical GrowNet ---
@@ -909,8 +1006,6 @@ coord_rmse = np.sqrt(coord_mse)
 coord_r2 = r2_score(true_coords, pred_coords)
 
 print(f"\nCoordinate Regression Metrics:")
-print(f"MSE:  {coord_mse:.5f}")
-print(f"RMSE: {coord_rmse:.5f}")
 print(f"R^2:  {coord_r2:.5f}")
 
 
