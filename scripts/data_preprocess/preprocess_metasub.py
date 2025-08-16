@@ -118,7 +118,7 @@ if __name__ == "__main__":
     # Parse command line arguements
     parser = argparse.ArgumentParser(
         prog= 'preprocess_metasub.py',
-        usage="python preprocess_metasub.py -m <input metasub metadata> -t <input taxa abundance data> -o <output file <optional>>",
+        usage="python3 preprocess_metasub.py -m <input metasub metadata> -t <input taxa abundance data> -o <output file <optional>>",
         description="This is a progam that can be used to process metasub data."
     )
 

@@ -305,7 +305,7 @@ if __name__ == "__main__":
     # Parse command line arguements
     parser = argparse.ArgumentParser(
         prog='rfe_feature_selection.py',
-        usage='python rfe_feature_selection.py -i <input processed metadata file> -o <output_file<optional>>',
+        usage='python3 rfe_feature_selection.py -i <input processed metadata file> -o <output_file<optional>>',
         description='This program is used to calculate the best features that can be used to train the neural network model.'        
     )
     parser.add_argument('-i','--input_csv_file',dest='csv_file',help='Enter the processed metadata csv file.')
