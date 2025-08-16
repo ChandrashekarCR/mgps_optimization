@@ -46,3 +46,5 @@
 
 #ignore scripts
 /scripts/metasub
+/scripts/grownet/nn_grownet_model.py
+/scripts/grownet/grownet_classification.py
