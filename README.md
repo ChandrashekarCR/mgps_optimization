@@ -113,10 +113,6 @@ This step ensures your data is clean, consistent, and ready for modeling.
   - `-t`: Path to taxa abundance file.
   - `-o`: (Optional) Output file path for processed data.
 
-  The script will:
-  - Filter out poorly represented cities.
-  - Fix coordinate errors.
-  - Save the processed dataset for downstream analysis.
 
   **Example Output:**  
   `/results/metasub/processed_metasub.csv`
@@ -176,12 +172,182 @@ After preprocessing, select the most informative features using Recursive Featur
   - `-i`: Path to processed metadata file.
   - `-o`: (Optional) Output file path for selected features.
 
-  The script will:
-  - Apply RFE to select top features.
-  - Output a reduced dataset containing only the selected features.
-
   **Example Output:**  
-  `/results/metasub/selected_features.csv`
+  `/results/metasub/metasub_training_testing_data.csv`
+
+
+
+---
+
+## 🧠 Neural Network Models
+
+### 1. `nn_model_revised.py` (Separate Neural Networks)
+
+**Purpose:**  
+Implements modular neural networks for continent/city classification and coordinate regression.  
+Supports flexible architecture, dropout, batch normalization, and early stopping.
+
+**Note:**  
+Many data file paths are hardcoded in the script for demonstration purposes, as these are not the primary models recommended for production use.  
+To use your own data, open `scripts/nn_models/nn_model_revised.py` and modify the line:
+```python
+df = pd.read_csv("/home/chandru/binp37/results/metasub/metasub_training_testing_data.csv")
+```
+Replace the path with your own CSV file.
+
+**Usage:**  
+- For continent/city classification, use the `NNClassifier` class.
+- For coordinate regression, use the `NNRegressor` class.
+- Both support hyperparameter tuning via Optuna.
+
+**How to Run:**  
+```sh
+python3 scripts/nn_models/nn_model_revised.py
+```
+
+---
+
+### 2. `nn_combined_model_revised.py` (Combined Neural Network)
+
+**Purpose:**  
+Implements a combined neural network for hierarchical prediction:
+- Predicts continent, then city (using continent probabilities), then coordinates (using both).
+
+**Note:**  
+Like the separate NN model, this script uses hardcoded data paths for convenience.  
+To use your own data, open `scripts/nn_models/nn_combined_model_revised.py` and modify the line:
+```python
+df = pd.read_csv("/home/chandru/binp37/results/metasub/metasub_training_testing_data.csv")
+```
+Replace the path with your own CSV file.
+
+**Usage:**  
+- Use the `CombinedHierarchicalNet` class for end-to-end hierarchical prediction.
+- Training and evaluation functions are provided for the full pipeline.
+- Supports Optuna tuning for architecture and loss weights.
+
+**How to Run:**  
+```sh
+python3 scripts/nn_models/nn_combined_model_revised.py
+```
+
+---
+
+## 🌿 GrowNet Model
+
+### `hierarchical_grownet.py` (Hierarchical Boosted Neural Network)
+
+**Purpose:**  
+Implements GrowNet, a neural network boosting framework for hierarchical prediction.  
+Learns continent, city, and coordinates in a single model using an ensemble of weak learners.
+
+**Note:**  
+The script uses hardcoded data paths for demonstration.  
+To use your own data, open `scripts/grownet/hierarchical_grownet.py` and modify the line:
+```python
+df = pd.read_csv("/home/chandru/binp37/results/metasub/metasub_training_testing_data.csv")
+```
+Replace the path with your own CSV file.
+
+**Usage:**  
+- Use the `train_hierarchical_grownet` function to train the model.
+- Supports class weighting, boosting, and Optuna-based hyperparameter tuning.
+
+**How to Run:**  
+```sh
+python3 scripts/grownet/hierarchical_grownet.py
+```
+- For hyperparameter tuning, use the `HierarchicalGrowNetTuner` class.
+- Input data should be processed using the provided `process_hierarchical_data` function.
+
+---
+
+## 🤖 Ensemble Learning Model
+
+### `main.py` (Customizable Hierarchical Ensemble)
+
+**Purpose:**  
+Implements a flexible, state-of-the-art hierarchical ensemble learning pipeline for metagenomic geolocation.  
+Combines multiple models (XGBoost, LightGBM, CatBoost, TabPFN, GrowNet, Neural Networks) for continent, city, and coordinate prediction, and achieves best-in-class performance.
+
+**Note:**  
+The data file path is hardcoded in the script for demonstration and development purposes.  
+To use your own data, open `scripts/ensemble/main.py` and modify the line:
+```python
+df = pd.read_csv("/home/chandru/binp37/results/metasub/metasub_training_testing_data.csv")
+```
+Replace the path with your own CSV file.
+
+**Key Features:**  
+- **Modular Design:**  
+  Each model (XGBoost, LightGBM, CatBoost, TabPFN, GrowNet, Neural Networks) is implemented in its own script under `scripts/ensemble/`, making it easy to add, remove, or update models.
+- **Customizable Model Selection:**  
+  For each layer (continent, city, coordinates), you can specify which models to use by passing their respective functions.  
+  Example:
+  ```python
+  continent_model, meta_X_train_cont, meta_X_test_cont, cont_train_preds, cont_test_preds = train_hierarchical_layer(
+      X_train=X_train_cont,
+      X_test=X_test_cont,
+      y_train=y_train_cont,
+      y_test=y_test_cont,
+      run_xgboost_classifier=run_xgboost_classifier,
+      run_grownet_classifier=run_grownet_classifier,
+      run_nn_classifier=run_nn_classifier,
+      run_tabpfn_classifier=run_tabpfn_classifier,
+      run_lightgbm_classifier=run_lightgbm_classifier,
+      run_catboost_classifier=run_catboost_classifier,
+      tune_hyperparams=True,
+      apply_smote=True,
+      n_splits=5,
+      accuracy_threshold=0.93
+  )
+  ```
+- **Automatic Model Filtering:**  
+  The pipeline runs cross-validation and automatically filters out underperforming models based on accuracy thresholds you set.
+- **Hyperparameter Tuning:**  
+  Optionally tune hyperparameters for selected models using Optuna.  
+  Set `tune_hyperparams=True` to enable.
+- **Meta-modeling:**  
+  Out-of-fold predictions from base models are used to train a meta-model (e.g., XGBoost) for improved accuracy.
+- **Class Imbalance Handling:**  
+  SMOTE oversampling can be enabled for imbalanced datasets.
+- **Detailed Error Analysis:**  
+  The pipeline computes classification reports, coordinate error statistics, and in-radius accuracy metrics for all layers.
+
+**How to Run:**  
+```sh
+python3 scripts/ensemble/main.py
+```
+- To use your own data, modify the file path in the script as described above.
+
+**How It Works:**  
+1. **Prepare Data:**  
+   Preprocess and split your data as described above.
+
+2. **Configure Models for Each Layer:**  
+   For each hierarchical layer (continent, city, coordinates), specify which models to use by passing their function or `None`.  
+   The pipeline is modular—each model is implemented in its own script (e.g., `grownet_classification.py`, `xgboost_classification.py`, etc.) and can be swapped in or out.
+
+3. **Run the Pipeline:**  
+   - The pipeline runs cross-validation to evaluate each model.
+   - Models meeting the accuracy threshold are selected.
+   - Hyperparameter tuning is performed if enabled.
+   - Out-of-fold predictions are generated and used to train a meta-model.
+   - Final predictions and error metrics are computed and saved.
+
+4. **Output:**  
+   - Returns trained meta-models, predictions, and evaluation metrics for each layer.
+   - Saves predictions and error analysis for further inspection.
+
+**Recommended Workflow:**  
+- Start by enabling all models for each layer and let the pipeline filter out the best performers.
+- For large datasets, restrict to faster models or those that support GPU.
+- Use the error analysis and plotting functions to interpret results and visualize predictions.
+
+**Why Use This Ensemble?**  
+- The ensemble model achieves a median coordinate error of **13.7 km**, beating previous state-of-the-art methods (e.g., mGPS at 137 km).
+- Modular scripts allow rapid experimentation and integration of new models.
+- Designed for scalability, robustness, and reproducibility.
 
 ---
 
