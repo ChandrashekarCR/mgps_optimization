@@ -2,8 +2,7 @@
 
 ## BINP37: Research Project (15 cr)
 
-This repository contains code, data, and documentation for hierarchical machine learning approaches to predict the geographic origin of environmental metagenomic samples.  
-The project builds on the MetaSUB dataset and advances the state-of-the-art in microbiome geolocation, surpassing previous tools such as mGPS.
+This repository contains code, data, and documentation for hierarchical machine learning approaches to predict the geographic origin of environmental metagenomic samples. The project builds on the MetaSUB dataset and advances the state-of-the-art in microbiome geolocation, surpassing previous tools such as mGPS.
 
 ---
 
@@ -15,8 +14,7 @@ The project builds on the MetaSUB dataset and advances the state-of-the-art in m
 
 ## 📝 Overview
 
-Accurate prediction of sample origin from microbial signatures is crucial for biosurveillance, forensic science, and public health.  
-This project introduces a robust ensemble learning framework leveraging neural networks, GrowNet, gradient boosting, and transformer-based models for improved classification and coordinate prediction.
+Accurate prediction of sample origin from microbial signatures is crucial for biosurveillance, forensic science, and public health. This project introduces a robust ensemble learning framework leveraging neural networks, GrowNet, gradient boosting decision trees, and transformer-based models for improved classification and coordinate prediction.
 
 ---
 
