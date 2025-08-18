@@ -408,9 +408,30 @@ python3 scripts/ensemble/main.py
 
 ---
 
+## 📦 Main Packages Used (with Versions)
+
+- **Python**: 3.13.5
+- **NumPy**: 2.3.1
+- **Pandas**: 2.2.3
+- **Scikit-learn**: 1.6.1
+- **SciPy**: 1.15.3
+- **Matplotlib**: 3.10.0
+- **Seaborn**: 0.12.2
+- **XGBoost**: 3.0.2
+- **LightGBM**: 4.6.0
+- **CatBoost**: 1.2.8
+- **TabPFN**: 2.0.9
+- **PyTorch**: 2.7.1+cu118
+- **Optuna**: 4.4.0
+- **imbalanced-learn**: 0.13.0
+- **Geopandas**: 1.1.1
+> For a full list of dependencies, see [`environment.yml`](environment.yml).
+
+---
+
 ## 🙏 Acknowledgements
 
 > Supervised by Eran Elhaik, with input from Bijan Mousavi and Sreejith.  
-> For questions or contributions, open an issue or contact the author.
+> For questions or contributions, open an issue or contact [Chandrashekar CR](mailto:ch1131ch-s@student.lu.se)
 
 ---
