@@ -343,7 +343,7 @@ python3 scripts/ensemble/main.py
 - Use the error analysis and plotting functions to interpret results and visualize predictions.
 
 **Why Use This Ensemble?**  
-- The ensemble model achieves a median coordinate error of **13.7 km**, beating previous state-of-the-art methods (e.g., mGPS at 137 km).
+- The ensemble model achieves a median coordinate error of **13.7 km**, beating previous state-of-the-art methods, mGPS **137 km**.
 - Modular scripts allow rapid experimentation and integration of new models.
 - Designed for scalability, robustness, and reproducibility.
 
@@ -352,8 +352,7 @@ python3 scripts/ensemble/main.py
 ## 📚 References
 
 - [MetaSUB Project](https://www.sciencedirect.com/science/article/pii/S0092867421005857)
-- mGPS: Microbiome Global Population Structure [REF]
-- Ensemble learning and model references [REF]
+- [mGPS: Microbiome Global Population Structure](https://academic.oup.com/gbe/article/16/11/evae209/7814710?login=false#498946344)
 
 ---
 
