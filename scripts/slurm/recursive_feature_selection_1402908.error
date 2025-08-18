@@ -1,19 +1,0 @@
-Lmod has detected the following error: The following module(s) are unknown:
-"Anaconda3/2024.02-1"
-
-Please check the spelling or version number. Also try "module spider ..."
-It is also possible your cache file is out-of-date; it may help to try:
-  $ module --ignore_cache load "Anaconda3/2024.02-1"
-
-Also make sure that all modulefiles written in TCL start with the string
-#%Module
-
-
-
-
-CondaError: Run 'conda init' before 'conda activate'
-
-2025-06-04 15:06:26,240	INFO worker.py:1843 -- Started a local Ray instance. View the dashboard at [1m[32m127.0.0.1:8265 [39m[22m
-Parallel RFE + Cross-validation:   0%|          | 0/35 [00:00<?, ?it/s]Parallel RFE + Cross-validation:   3%|▎         | 1/35 [20:09<11:25:27, 1209.65s/it]Parallel RFE + Cross-validation:  37%|███▋      | 13/35 [20:18<24:41, 67.33s/it]    Parallel RFE + Cross-validation:  60%|██████    | 21/35 [31:49<17:48, 76.35s/it]Parallel RFE + Cross-validation:  94%|█████████▍| 33/35 [31:52<01:16, 38.04s/it]Parallel RFE + Cross-validation: 100%|██████████| 35/35 [31:52<00:00, 54.64s/it]
-WARNING: All log messages before absl::InitializeLog() is called are written to STDERR
-I0000 00:00:1749044579.690995 2187284 chttp2_transport.cc:1182] ipv4:10.21.0.27:60496: Got goaway [2] err=UNAVAILABLE:GOAWAY received; Error code: 2; Debug Text: Cancelling all calls {created_time:"2025-06-04T15:42:59.690979082+02:00", http2_error:2, grpc_status:14}

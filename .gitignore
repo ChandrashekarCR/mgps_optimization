@@ -61,3 +61,38 @@
 /scripts/metasub
 /scripts/grownet/nn_grownet_model.py
 /scripts/grownet/grownet_classification.py
+
+# Ignore Python cache and compiled files
+scripts/ensemble/xgboost_ensemble/__pycache__/
+scripts/ensemble/simple_nn/__pycache__/
+scripts/ensemble/tab_pfn/__pycache__/
+scripts/ensemble/lightgbm_ensemble/__pycache__/
+scripts/ensemble/grownet/__pycache__/
+scripts/ensemble/catboost_ensemble/__pycache__/
+
+# Ignore CatBoost info files
+scripts/ensemble/catboost_info/
+
+# Ignore SLURM output/error files
+scripts/slurm/*.error
+scripts/slurm/*.output
+
+# Ignore report workflow files
+report/workflows/separate_neural_networks.aux
+report/workflows/separate_neural_networks.log
+report/workflows/separate_neural_networks.pdf
+report/workflows/separate_neural_networks.tex
+report/workflows/data_splitting.tex
+report/workflows/ensemble_learner.aux
+report/workflows/ensemble_learner.log
+report/workflows/ensemble_learner.pdf
+report/workflows/ensemble_learner.tex
+report/workflows/data_splitting.aux
+report/workflows/data_splitting.log
+report/workflows/combined_neural_networks.aux
+report/workflows/combined_neural_networks.log
+report/workflows/combined_neural_networks.pdf
+report/workflows/combined_neural_networks.tex
+
+# Ignore VSCode settings
+.vscode/settings.json
