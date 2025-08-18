@@ -71,6 +71,10 @@ binp37/
 │   ├── geopandas/       # Geospatial mapping data
 ├── notebooks/           # Jupyter notebooks
 ├── scripts/             # Preprocessing, modeling, feature engineering
+│   ├── feature_engineering/  # Feature selection and taxonomic enrichment
+│   ├── grownet/         # Hierarchical boosted neural networks
+│   ├── nn_models/       # Separate and combined neural networks
+│   ├── ensemble/        # Full ensemble pipeline
 ├── report/              # LaTeX manuscript source
 │   ├── abstract/
 │   ├── introduction/
@@ -163,16 +167,20 @@ This step ensures your data is clean, consistent, and ready for modeling.
 
 ---
 
-**4. Feature Selection with RFE**
+**4. Feature Engineering**
 
-After preprocessing, select the most informative features using Recursive Feature Elimination (RFE).
+After preprocessing, two essential feature engineering steps help improve model performance:
+
+### 4.1. **Feature Selection with RFE**
 
 - **Script:**  
   `/scripts/feature_engineering/rfe_feature_selection.py`
 
   **Purpose:**  
-  - Automatically identifies and retains the most relevant microbial species/features for prediction.
-  - Reduces dimensionality and improves model performance.
+  - Uses Recursive Feature Elimination (RFE) with cross-validation to select optimal feature subsets
+  - Removes highly correlated features to reduce multicollinearity
+  - Parallelizes computations for efficiency with large feature sets
+  - Identifies the most predictive microbial features for geographical prediction
 
   **Required Input File:**  
   - Processed metadata file from previous step (e.g., `/results/metasub/processed_metasub.csv`)
@@ -189,7 +197,6 @@ After preprocessing, select the most informative features using Recursive Featur
   **Example Output:**  
   `/results/metasub/metasub_training_testing_data.csv`
 
-
 ---
 
 ## 🧠 Neural Network Models
@@ -200,9 +207,19 @@ After preprocessing, select the most informative features using Recursive Featur
 Implements modular neural networks for continent/city classification and coordinate regression.  
 Supports flexible architecture, dropout, batch normalization, and early stopping.
 
-**Note:**  
-Many data file paths are hardcoded in the script for demonstration purposes, as these are not the primary models recommended for production use.  
-To use your own data, open `scripts/nn_models/nn_model_revised.py` and modify the line:
+#### Separate Neural Networks Workflow
+
+![Separate Neural Networks Workflow](report/figures/separate_neural_networks_cropped.pdf)
+
+*This figure depicts the modular approach, where separate neural networks are trained for continent/city classification and coordinate regression, with feature augmentation between stages.*
+
+**Key Features:**
+- **Hierarchical Architecture:** Sequential prediction of continent → city → coordinates
+- **Feature Augmentation:** Each stage uses predictions from previous stages as additional features
+- **Customizable Network Design:** Flexible hidden layers, dropout rates, and activation functions
+- **Hyperparameter Tuning:** Integrated Optuna support for architecture and training parameter optimization
+
+**Usage:**  
 ```python
 df = pd.read_csv("/home/chandru/binp37/results/metasub/metasub_training_testing_data.csv")
 ```
@@ -226,9 +243,19 @@ python3 scripts/nn_models/nn_model_revised.py
 Implements a combined neural network for hierarchical prediction:
 - Predicts continent, then city (using continent probabilities), then coordinates (using both).
 
-**Note:**  
-Like the separate NN model, this script uses hardcoded data paths for convenience.  
-To use your own data, open `scripts/nn_models/nn_combined_model_revised.py` and modify the line:
+#### Combined Neural Network Workflow
+
+![Combined Neural Network Workflow](report/figures/combined_neural_networks_cropped.pdf)
+
+*This diagram shows the hierarchical structure of the combined neural network model, where continent, city, and coordinates are predicted in sequence using shared and augmented features.*
+
+**Key Features:**
+- **End-to-End Architecture:** All predictions come from a single network with shared parameters
+- **Branched Design:** Separate heads for continent, city, and coordinate prediction
+- **Information Flow:** City prediction head receives continent probabilities; coordinate head receives both
+- **Multi-Task Learning:** Weighted loss functions balance classification and regression objectives
+
+**Usage:**  
 ```python
 df = pd.read_csv("/home/chandru/binp37/results/metasub/metasub_training_testing_data.csv")
 ```
@@ -251,12 +278,15 @@ python3 scripts/nn_models/nn_combined_model_revised.py
 ### `hierarchical_grownet.py` (Hierarchical Boosted Neural Network)
 
 **Purpose:**  
-Implements GrowNet, a neural network boosting framework for hierarchical prediction.  
-Learns continent, city, and coordinates in a single model using an ensemble of weak learners.
+Implements GrowNet, a gradient boosting framework using neural networks as weak learners for hierarchical prediction.
 
-**Note:**  
-The script uses hardcoded data paths for demonstration.  
-To use your own data, open `scripts/grownet/hierarchical_grownet.py` and modify the line:
+**Key Features:**
+- **Boosting-Based:** Builds an ensemble of weak neural networks sequentially, each improving upon previous predictions
+- **Multi-Task Learning:** Each weak learner predicts continent, city, and coordinates simultaneously
+- **Corrective Steps:** Periodically adjusts the ensemble weights for optimal performance
+- **Gradient-Guided:** Uses functional gradients to direct the learning of each new weak learner
+
+**Usage:**  
 ```python
 df = pd.read_csv("/home/chandru/binp37/results/metasub/metasub_training_testing_data.csv")
 ```
@@ -282,6 +312,12 @@ python3 scripts/grownet/hierarchical_grownet.py
 **Purpose:**  
 Implements a flexible, state-of-the-art hierarchical ensemble learning pipeline for metagenomic geolocation.  
 Combines multiple models (XGBoost, LightGBM, CatBoost, TabPFN, GrowNet, Neural Networks) for continent, city, and coordinate prediction, and achieves best-in-class performance.
+
+#### Ensemble Learner Workflow
+
+![Ensemble Learner Workflow](report/figures/ensemble_learner_cropped.pdf)
+
+*This workflow illustrates the ensemble learning pipeline, combining predictions from multiple models (XGBoost, LightGBM, CatBoost, TabPFN, GrowNet, Neural Networks) at each hierarchical layer, and using meta-models for final prediction.*
 
 **Note:**  
 The data file path is hardcoded in the script for demonstration and development purposes.  
@@ -361,6 +397,7 @@ python3 scripts/ensemble/main.py
 - The ensemble model achieves a median coordinate error of **13.7 km**, beating previous state-of-the-art methods, mGPS **137 km**.
 - Modular scripts allow rapid experimentation and integration of new models.
 - Designed for scalability, robustness, and reproducibility.
+
 
 ---
 
