@@ -44,19 +44,35 @@ Accurate prediction of sample origin from microbial signatures is crucial for bi
 - **Fine-Scale Localization:**  
   Distinguishes neighborhoods/districts within cities.
 
-### Global Distribution of MetaSUB Sampling Sites
+---
+
+### 📍 Global Distribution of MetaSUB Sampling Sites
+
+*Shows the worldwide locations and sample counts for the MetaSUB dataset. The map highlights geographic diversity and sampling density, with regional breakdowns for Europe, North America, and Asia-Pacific. The color scale (log scale) indicates the number of samples per city, illustrating which cities and continents are well or poorly represented.*
 
 ![Global Distribution of MetaSUB Sampling Sites](report/figures/global_sampling_sites.png)
 
-### Taxonomic Diversity in MetaSUB Dataset
+---
+
+### 🦠 Taxonomic Diversity in MetaSUB Dataset
+
+*Summarizes the taxonomic composition of the MetaSUB samples at multiple levels (superphylum, phylum, class, order). Bacteria dominate the dataset, with Pseudomonadota and Actinomycetota as major groups. The plot provides insight into the microbial diversity available for geographic prediction.*
 
 ![Taxonomic Diversity in MetaSUB Dataset](report/figures/taxonomic_diversity_summary.png)
 
-### All Cities: True vs Predicted Coordinates
+---
+
+### 🌍 All Cities: True vs Predicted Coordinates
+
+*Overlays the true sample locations (blue) and the predicted locations (red) for all test samples. The close proximity of predicted points to true points across continents and cities demonstrates the ensemble model's ability to accurately localize samples worldwide.*
 
 ![All Cities: True vs Predicted Coordinates](report/figures/world_true_vs_predicted_coords.png)
 
-### Effect of Classification Correctness on Geographical Error
+---
+
+### 🎯 Effect of Classification Correctness on Geographical Error
+
+*Illustrates the relationship between classification correctness (continent/city) and the resulting geodesic error in coordinate prediction. Samples correctly classified at higher levels have dramatically lower coordinate errors, highlighting the importance of robust hierarchical classification for precise geographic localization.*
 
 ![Effect of Classification Correctness on Geographical Error](report/figures/classification_correctness_vs_error.png)
 
@@ -64,7 +80,7 @@ Accurate prediction of sample origin from microbial signatures is crucial for bi
 
 ## 📁 Repository Structure
 
-```
+```text
 binp37/
 ├── data/                # Raw and processed data
 │   ├── metasub/         # MetaSUB dataset and metadata
@@ -79,7 +95,7 @@ binp37/
 ├── report/              # LaTeX manuscript and figures
 │   ├── figures/         # Plots and diagrams for the manuscript
 │   ├── workflows/       # Workflow diagrams (PDF/TEX)
-|   ├──main.pdf          # Report
+│   ├── main.pdf         # Report
 ├── results/             # Model outputs and processed datasets
 │   ├── metasub/
 ├── environment.yml      # Conda environment specification
@@ -90,38 +106,34 @@ binp37/
 
 ## 🏁 Getting Started
 
-**1. Clone the repository:**
+### 1. Clone the repository
 ```sh
 git clone https://github.com/ChandrashekarCR/mgps_optimization.git
 cd mgps_optimization
 ```
 
-**2. Set up the environment:**
+### 2. Set up the environment
 ```sh
 conda env create -f environment.yml
 conda activate binp37_env
 ```
 
-**3. Data Preparation:**
+### 3. Data Preparation
 
-This step ensures your data is clean, consistent, and ready for modeling.
+**Preprocessing the MetaSUB Dataset**
 
-- **Preprocessing the MetaSUB Dataset**
-
-  The main script for preprocessing is  
-  `/scripts/data_preprocess/preprocess_metasub.py`.
-
-  **Purpose:**  
+- Main script: `/scripts/data_preprocess/preprocess_metasub.py`
+- **Purpose:**  
   - Merges taxonomic abundance data with sample metadata.
   - Performs quality control, removing cities with insufficient samples.
   - Corrects mislabelled coordinates and harmonizes metadata fields.
   - Outputs a clean, analysis-ready CSV file.
 
-  **Required Input Files:**  
+- **Required Input Files:**  
   - Taxa abundance: `/data/metasub/metasub_taxa_abundance.csv`
   - Metadata: `/data/metasub/complete_metadata.csv`
 
-  **How to Run:**
+- **How to Run:**
   ```sh
   python3 scripts/data_preprocess/preprocess_metasub.py \
     -m /data/metasub/complete_metadata.csv \
@@ -132,61 +144,34 @@ This step ensures your data is clean, consistent, and ready for modeling.
   - `-t`: Path to taxa abundance file.
   - `-o`: (Optional) Output file path for processed data.
 
-
-  **Example Output:**  
+- **Example Output:**  
   `/results/metasub/processed_metasub.csv`
 
-  <table>
-    <thead>
-      <tr>
-        <th>Index</th><th>Species A</th><th>Species B</th><th>Species C</th><th>Species D</th>
-        <th>Continent</th><th>City</th><th>Latitude</th><th>Longitude</th>
-      </tr>
-    </thead>
-    <tbody>
-      <tr>
-        <td>Sample1</td><td>0.12</td><td>0.34</td><td>0.56</td><td>0.78</td>
-        <td>Europe</td><td>Paris</td><td>48.8566</td><td>2.3522</td>
-      </tr>
-      <tr>
-        <td>Sample2</td><td>0.23</td><td>0.45</td><td>0.67</td><td>0.89</td>
-        <td>Asia</td><td>Tokyo</td><td>35.6895</td><td>139.6917</td>
-      </tr>
-      <tr>
-        <td>Sample3</td><td>0.31</td><td>0.21</td><td>0.41</td><td>0.61</td>
-        <td>North Am.</td><td>New York</td><td>40.7128</td><td>-74.0060</td>
-      </tr>
-      <tr>
-        <td>Sample4</td><td>0.15</td><td>0.25</td><td>0.35</td><td>0.55</td>
-        <td>Africa</td><td>Nairobi</td><td>-1.2921</td><td>36.8219</td>
-      </tr>
-    </tbody>
-  </table>
-
   > **Note:**  
-  > Table values are illustrative and do not represent true dataset samples.
+  > Table values below are illustrative and do not represent true dataset samples.
+
+  | Index   | Species A | Species B | Species C | Species D | Continent | City     | Latitude | Longitude |
+  |---------|-----------|-----------|-----------|-----------|-----------|----------|----------|-----------|
+  | Sample1 | 0.12      | 0.34      | 0.56      | 0.78      | Europe    | Paris    | 48.8566  | 2.3522    |
+  | Sample2 | 0.23      | 0.45      | 0.67      | 0.89      | Asia      | Tokyo    | 35.6895  | 139.6917  |
+  | Sample3 | 0.31      | 0.21      | 0.41      | 0.61      | North Am. | New York | 40.7128  | -74.0060  |
+  | Sample4 | 0.15      | 0.25      | 0.35      | 0.55      | Africa    | Nairobi  | -1.2921  | 36.8219   |
 
 ---
 
-**4. Feature Engineering**
+### 4. Feature Engineering
 
-After preprocessing, two essential feature engineering steps help improve model performance:
-
-### 4.1. **Feature Selection with RFE**
-
-- **Script:**  
-  `/scripts/feature_engineering/rfe_feature_selection.py`
-
-  **Purpose:**  
+- **Script:** `/scripts/feature_engineering/rfe_feature_selection.py`
+- **Purpose:**  
   - Uses Recursive Feature Elimination (RFE) with cross-validation to select optimal feature subsets
   - Removes highly correlated features to reduce multicollinearity
   - Parallelizes computations for efficiency with large feature sets
   - Identifies the most predictive microbial features for geographical prediction
 
-  **Required Input File:**  
+- **Required Input File:**  
   - Processed metadata file from previous step (e.g., `/results/metasub/processed_metasub.csv`)
 
-  **How to Run:**
+- **How to Run:**
   ```sh
   python3 scripts/feature_engineering/rfe_feature_selection.py \
     -i /results/metasub/processed_metasub.csv \
@@ -195,7 +180,7 @@ After preprocessing, two essential feature engineering steps help improve model 
   - `-i`: Path to processed metadata file.
   - `-o`: (Optional) Output file path for selected features.
 
-  **Example Output:**  
+- **Example Output:**  
   `/results/metasub/metasub_training_testing_data.csv`
 
 ---
@@ -212,29 +197,46 @@ Supports flexible architecture, dropout, batch normalization, and early stopping
 
 ![Separate Neural Networks Workflow](report/workflows/separate_nn.png)
 
-*This figure depicts the modular approach, where separate neural networks are trained for continent/city classification and coordinate regression, with feature augmentation between stages.*
+*Separate neural networks are trained for continent/city classification and coordinate regression, with feature augmentation between stages.*
 
 **Key Features:**
-- **Hierarchical Architecture:** Sequential prediction of continent → city → coordinates
-- **Feature Augmentation:** Each stage uses predictions from previous stages as additional features
-- **Customizable Network Design:** Flexible hidden layers, dropout rates, and activation functions
-- **Hyperparameter Tuning:** Integrated Optuna support for architecture and training parameter optimization
+- Hierarchical architecture: Sequential prediction of continent → city → coordinates
+- Feature augmentation: Each stage uses predictions from previous stages as additional features
+- Customizable network design: Flexible hidden layers, dropout rates, and activation functions
+- Hyperparameter tuning: Integrated Optuna support
 
 **Usage:**  
-```python
-df = pd.read_csv("/home/chandru/binp37/results/metasub/metasub_training_testing_data.csv")
-```
-Replace the path with your own CSV file.
+1. Prepare your data:  
+   Ensure your input CSV (e.g., `/home/chandru/binp37/results/metasub/metasub_training_testing_data.csv`) contains feature columns and target columns for continent, city, latitude, and longitude.
 
-**Usage:**  
-- For continent/city classification, use the `NNClassifier` class.
-- For coordinate regression, use the `NNRegressor` class.
-- Both support hyperparameter tuning via Optuna.
+2. Load the data in Python:  
+   ```python
+   import pandas as pd
+   df = pd.read_csv("/home/chandru/binp37/results/metasub/metasub_training_testing_data.csv")
+   ```
+   Replace your CSV file name in the script as needed.
 
-**How to Run:**  
-```sh
-python3 scripts/nn_models/nn_model_revised.py
-```
+3. Train the models:  
+   Use the provided functions/classes for continent/city classification and coordinate regression.  
+   For hyperparameter tuning, set `tune_hyperparams=True` in the function arguments.
+
+   ```python
+   hierarchical_results = run_hierarchical_nn_model(
+       X_train_cont, X_test_cont,
+       y_train_cont, y_test_cont,
+       y_train_city, y_test_city,
+       y_train_coords, y_test_coords,
+       device=device, 
+       tune_hyperparams=True,  # Set to True for tuning
+       n_trials=20, 
+       timeout=100
+   )
+   ```
+
+4. Run from command line:  
+   ```sh
+   python3 scripts/nn_models/nn_model_revised.py
+   ```
 
 ---
 
@@ -248,29 +250,36 @@ Implements a combined neural network for hierarchical prediction:
 
 ![Combined Neural Network Workflow](report/workflows/combined_nn.png)
 
-*This diagram shows the hierarchical structure of the combined neural network model, where continent, city, and coordinates are predicted in sequence using shared and augmented features.*
+*Hierarchical structure: continent, city, and coordinates are predicted in sequence using shared and augmented features.*
 
 **Key Features:**
-- **End-to-End Architecture:** All predictions come from a single network with shared parameters
-- **Branched Design:** Separate heads for continent, city, and coordinate prediction
-- **Information Flow:** City prediction head receives continent probabilities; coordinate head receives both
-- **Multi-Task Learning:** Weighted loss functions balance classification and regression objectives
+- End-to-end architecture: All predictions from a single network with shared parameters
+- Branched design: Separate heads for continent, city, and coordinate prediction
+- Information flow: City prediction head receives continent probabilities; coordinate head receives both
+- Multi-task learning: Weighted loss functions balance classification and regression objectives
 
 **Usage:**  
-```python
-df = pd.read_csv("/home/chandru/binp37/results/metasub/metasub_training_testing_data.csv")
-```
-Replace the path with your own CSV file.
+1. Prepare your data:  
+   Use the processed CSV file with features and targets.
 
-**Usage:**  
-- Use the `CombinedHierarchicalNet` class for end-to-end hierarchical prediction.
-- Training and evaluation functions are provided for the full pipeline.
-- Supports Optuna tuning for architecture and loss weights.
+2. Load and process data:  
+   ```python
+   import pandas as pd
+   df = pd.read_csv("/home/chandru/binp37/results/metasub/metasub_training_testing_data.csv")
+   processed = process_data_hierarchical(df)
+   # Extract features and targets as shown in the script
+   ```
 
-**How to Run:**  
-```sh
-python3 scripts/nn_models/nn_combined_model_revised.py
-```
+3. Set up DataLoaders and device:  
+   Use the provided code to create train/test splits and DataLoaders.
+
+4. Hyperparameter tuning:  
+   Set `tune_hyperparams=True` for Optuna-based tuning.
+
+5. Run from command line:  
+   ```sh
+   python3 scripts/nn_models/nn_combined_model_revised.py
+   ```
 
 ---
 
@@ -282,27 +291,36 @@ python3 scripts/nn_models/nn_combined_model_revised.py
 Implements GrowNet, a gradient boosting framework using neural networks as weak learners for hierarchical prediction.
 
 **Key Features:**
-- **Boosting-Based:** Builds an ensemble of weak neural networks sequentially, each improving upon previous predictions
-- **Multi-Task Learning:** Each weak learner predicts continent, city, and coordinates simultaneously
-- **Corrective Steps:** Periodically adjusts the ensemble weights for optimal performance
-- **Gradient-Guided:** Uses functional gradients to direct the learning of each new weak learner
+- Boosting-based: Builds an ensemble of weak neural networks sequentially
+- Multi-task learning: Each weak learner predicts continent, city, and coordinates simultaneously
+- Corrective steps: Periodically adjusts the ensemble weights for optimal performance
+- Gradient-guided: Uses functional gradients to direct the learning of each new weak learner
 
 **Usage:**  
-```python
-df = pd.read_csv("/home/chandru/binp37/results/metasub/metasub_training_testing_data.csv")
-```
-Replace the path with your own CSV file.
+1. Prepare your data:  
+   Use the processed CSV file with features and hierarchical targets.
 
-**Usage:**  
-- Use the `train_hierarchical_grownet` function to train the model.
-- Supports class weighting, boosting, and Optuna-based hyperparameter tuning.
+2. Load and process data:  
+   ```python
+   import pandas as pd
+   df = pd.read_csv("/home/chandru/binp37/results/metasub/metasub_training_testing_data.csv")
+   x_data, continent_targets, city_targets, coord_targets, continent_encoder, city_encoder, coordinate_encoder = process_hierarchical_data(df)
+   ```
 
-**How to Run:**  
-```sh
-python3 scripts/grownet/hierarchical_grownet.py
-```
-- For hyperparameter tuning, use the `HierarchicalGrowNetTuner` class.
-- Input data should be processed using the provided `process_hierarchical_data` function.
+3. Hyperparameter tuning (optional):  
+   Uncomment and use the `HierarchicalGrowNetTuner` class for Optuna-based tuning.
+
+4. Train the model:  
+   ```python
+   trained_model, metrics = train_hierarchical_grownet(
+       x_data, continent_targets, city_targets, coord_targets, params
+   )
+   ```
+
+5. Run from command line:  
+   ```sh
+   python3 scripts/grownet/hierarchical_grownet.py
+   ```
 
 ---
 
@@ -318,7 +336,7 @@ Combines multiple models (XGBoost, LightGBM, CatBoost, TabPFN, GrowNet, Neural N
 
 ![Ensemble Learner Workflow](report/workflows/ensemble_model.png)
 
-*This workflow illustrates the ensemble learning pipeline, combining predictions from multiple models (XGBoost, LightGBM, CatBoost, TabPFN, GrowNet, Neural Networks) at each hierarchical layer, and using meta-models for final prediction.*
+*Combines predictions from multiple models at each hierarchical layer, using meta-models for final prediction.*
 
 **Note:**  
 The data file path is hardcoded in the script for demonstration and development purposes.  
@@ -426,6 +444,7 @@ python3 scripts/ensemble/main.py
 - **Optuna**: 4.4.0
 - **imbalanced-learn**: 0.13.0
 - **Geopandas**: 1.1.1
+
 > For a full list of dependencies, see [`environment.yml`](environment.yml).
 
 ---
