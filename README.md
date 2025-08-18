@@ -46,19 +46,19 @@ Accurate prediction of sample origin from microbial signatures is crucial for bi
 
 ### Global Distribution of MetaSUB Sampling Sites
 
-![Global Distribution of MetaSUB Sampling Sites](scripts/figures/metasub_global_distribution.png)
+![Global Distribution of MetaSUB Sampling Sites](report/figures/metasub_global_distribution.png)
 
 ### Taxonomic Diversity in MetaSUB Dataset
 
-![Taxonomic Diversity in MetaSUB Dataset](scripts/figures/taxonomic_diversity.png)
+![Taxonomic Diversity in MetaSUB Dataset](report/figures/taxonomic_diversity.png)
 
 ### All Cities: True vs Predicted Coordinates
 
-![All Cities: True vs Predicted Coordinates](scripts/figures/true_vs_predicted_coordinates.png)
+![All Cities: True vs Predicted Coordinates](report/figures/true_vs_predicted_coordinates.png)
 
 ### Effect of Classification Correctness on Geographical Error
 
-![Effect of Classification Correctness on Geographical Error](scripts/figures/classification_error_barplot.png)
+![Effect of Classification Correctness on Geographical Error](report/figures/classification_error_barplot.png)
 
 ---
 
