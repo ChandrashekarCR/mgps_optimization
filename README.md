@@ -209,7 +209,7 @@ Supports flexible architecture, dropout, batch normalization, and early stopping
 
 #### Separate Neural Networks Workflow
 
-![Separate Neural Networks Workflow](report/figures/separate_neural_networks_cropped.pdf)
+![Separate Neural Networks Workflow](report/workflows/separate_neural_networks_cropped.pdf)
 
 *This figure depicts the modular approach, where separate neural networks are trained for continent/city classification and coordinate regression, with feature augmentation between stages.*
 
@@ -245,7 +245,7 @@ Implements a combined neural network for hierarchical prediction:
 
 #### Combined Neural Network Workflow
 
-![Combined Neural Network Workflow](report/figures/combined_neural_networks_cropped.pdf)
+![Combined Neural Network Workflow](report/workflows/combined_neural_networks_cropped.pdf)
 
 *This diagram shows the hierarchical structure of the combined neural network model, where continent, city, and coordinates are predicted in sequence using shared and augmented features.*
 
@@ -315,7 +315,7 @@ Combines multiple models (XGBoost, LightGBM, CatBoost, TabPFN, GrowNet, Neural N
 
 #### Ensemble Learner Workflow
 
-![Ensemble Learner Workflow](report/figures/ensemble_learner_cropped.pdf)
+![Ensemble Learner Workflow](report/workflows/ensemble_learner_cropped.pdf)
 
 *This workflow illustrates the ensemble learning pipeline, combining predictions from multiple models (XGBoost, LightGBM, CatBoost, TabPFN, GrowNet, Neural Networks) at each hierarchical layer, and using meta-models for final prediction.*
 
