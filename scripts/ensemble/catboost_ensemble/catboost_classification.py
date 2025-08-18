@@ -1,3 +1,16 @@
+"""
+CatBoost Classification Script for Ensemble Learning
+
+This script provides a CatBoost-based classification pipeline for use in the ensemble learning framework.
+It supports hyperparameter tuning via Optuna, training, and evaluation. The main functions and classes here
+are imported and used by the main ensemble script (main.py) to provide CatBoost as one of the model options
+for hierarchical classification tasks (e.g., continent/city prediction).
+
+Usage:
+- Called by main.py for model selection, training, and prediction.
+- Supports both default and tuned hyperparameters.
+"""
+
 import pandas as pd
 import numpy as np
 from catboost import CatBoostClassifier
@@ -8,6 +21,10 @@ import warnings
 warnings.filterwarnings('ignore')
 
 class CatBoostClassifierOptimizer:
+    """
+    Handles CatBoost hyperparameter tuning, training, and evaluation for classification tasks.
+    Used by the ensemble pipeline.
+    """
     def __init__(self, X_train, y_train, X_test, y_test, random_state=42, n_trials=20, timeout=1200, cat_features=None):
         self.X_train = X_train
         self.y_train = y_train
@@ -21,6 +38,7 @@ class CatBoostClassifierOptimizer:
         self.final_model = None
 
     def default_params(self):
+        # Returns default CatBoost parameters for classification
         return {
             'loss_function': 'MultiClass',
             'iterations': 300,
@@ -32,6 +50,7 @@ class CatBoostClassifierOptimizer:
         }
 
     def objective(self, trial):
+        # Optuna objective for hyperparameter search
         params = {
             'loss_function': 'MultiClass',
             'iterations': trial.suggest_int('iterations', 100, 400),
@@ -48,6 +67,7 @@ class CatBoostClassifierOptimizer:
         return scores.mean()
 
     def tune(self):
+        # Runs Optuna study to find best hyperparameters
         study = optuna.create_study(direction='maximize', pruner=optuna.pruners.MedianPruner(n_startup_trials=5, n_warmup_steps=2))
         study.optimize(self.objective, n_trials=self.n_trials, timeout=self.timeout)
         self.best_params = study.best_params
@@ -59,12 +79,14 @@ class CatBoostClassifierOptimizer:
         return self.best_params
 
     def train(self, params):
+        # Trains CatBoostClassifier with given parameters
         model = CatBoostClassifier(**params)
         model.fit(self.X_train, self.y_train, cat_features=self.cat_features)
         self.final_model = model
         return model
 
     def evaluate(self, model=None):
+        # Evaluates model on test set and prints classification report
         if model is None:
             model = self.final_model
         preds = model.predict(self.X_test)
@@ -81,6 +103,7 @@ def run_catboost_classifier(X_train, y_train, X_test, y_test,
                            n_trials=20, timeout=1200, params=None, verbose=False):
     """
     CatBoost classification wrapper for ensemble.
+    Called by main.py for hierarchical classification.
     """
     tuner = CatBoostClassifierOptimizer(X_train, y_train, X_test, y_test, 
                          random_state=random_state, n_trials=n_trials,timeout=timeout,cat_features=None)

@@ -1,3 +1,19 @@
+"""
+Main Ensemble Model Script
+
+This script orchestrates the ensemble learning pipeline for hierarchical geographical prediction.
+It imports and utilizes various model wrappers (XGBoost, CatBoost, LightGBM, TabPFN, GrowNet, Neural Networks)
+for both classification (continent/city) and regression (coordinates) tasks. The ensemble combines predictions
+from multiple models using stacking/meta-learning, and provides error analysis and visualization.
+
+Usage:
+- Imports model wrappers from submodules (e.g., catboost_classification.py).
+- Runs multi-stage ensemble for continent, city, and coordinate prediction.
+- Performs error analysis and saves results.
+
+This script is the entry point for the ensemble workflow.
+"""
+
 # The main ensemble model
 
 # Import libraries 

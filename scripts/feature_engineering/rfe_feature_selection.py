@@ -1,3 +1,21 @@
+"""
+Recursive Feature Elimination (RFE) Feature Selection Script
+
+This script performs parallelized recursive feature elimination (RFE) with cross-validation
+to select the best subset of features for downstream machine learning tasks, such as neural network modeling.
+It supports correlation-based feature removal, multiprocessing, and flexible output handling.
+
+Main Workflow:
+- Loads input metadata and target column.
+- Removes highly correlated features.
+- Runs RFE with RandomForest and cross-validation for multiple feature subset sizes.
+- Aggregates results and selects the best-performing feature subset.
+- Saves the selected features and relevant metadata to an output file.
+
+Usage:
+- Run as a script with arguments for input data, target column, taxa start column, and output file.
+"""
+
 # Import libraries
 import pandas as pd
 from sklearn.ensemble import RandomForestClassifier
@@ -38,7 +56,7 @@ def evaluate_rfe_single(args_tuple):
                 max_depth=10
             ), 
             n_features_to_select=n_features, 
-            step=1
+            step=max(1, int(X_data.shape[1] * 0.1))  # Adaptive step size: 10% of features, at least 1
         )
         pipe = make_pipeline(rfe)
         print(f"[TASK {n_features}-{fold}] RFE pipeline created successfully")

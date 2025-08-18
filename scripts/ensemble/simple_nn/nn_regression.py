@@ -1,3 +1,16 @@
+"""
+Simple Neural Network Regression Script for Ensemble Learning
+
+This script provides a simple neural network-based regression pipeline for use in the ensemble learning framework.
+It supports hyperparameter tuning via Optuna, training, and evaluation. The main functions and classes here
+are imported and used by the main ensemble script (main.py) to provide a neural network as one of the model options
+for hierarchical coordinate regression tasks (e.g., latitude/longitude prediction).
+
+Usage:
+- Called by main.py for model selection, training, and prediction.
+- Supports both default and tuned hyperparameters.
+"""
+
 # This model is used for regression tasks with a simple neural network
 
 # Import libraries
@@ -47,6 +60,10 @@ def default_regression_params():
 
 
 class NNRegressionTuner:
+    """
+    Handles neural network hyperparameter tuning for regression tasks using Optuna.
+    Used by the ensemble pipeline.
+    """
     def __init__(self, X_train, y_train, X_val=None, y_val=None, params=None, device="cpu", n_trials=20, timeout=1200):
         self.X_train = X_train
         self.y_train = y_train
@@ -106,6 +123,9 @@ device = "cuda" if torch.cuda.is_available() else "cpu"
 print(f"Using device: {device}")
 
 class RegressionTrainDataset(Dataset):
+    """
+    PyTorch Dataset for simple neural network regression training.
+    """
     def __init__(self, features, targets):
         self.features = features
         self.targets = targets
@@ -123,6 +143,9 @@ class RegressionTrainDataset(Dataset):
 
 # Neural Network for Regression
 class RegressionNeuralNetwork(nn.Module):
+    """
+    Simple feedforward neural network for regression.
+    """
     def __init__(self, input_dim, output_dim, hidden_dim=[128, 64],
                  use_batch_norm=True, initial_dropout=0.2, final_dropout=0.5, random_state=42):
         super().__init__()
@@ -159,6 +182,9 @@ class RegressionNeuralNetwork(nn.Module):
 
 
 class NNRegressor:
+    """
+    Main neural network regressor interface for training, evaluation, and prediction.
+    """
     def __init__(self, params=None, device="cpu"):
         if params is None:
             self.params = default_regression_params()
@@ -358,7 +384,10 @@ class NNRegressor:
 def run_nn_regressor(X_train, y_train, X_test, y_test, device=None,
                      tune_hyperparams=False, params=None,
                      n_trials=20, timeout=1200, verbose=True):
-    """Run the neural network regressor"""
+    """
+    Simple neural network regression wrapper for ensemble with proper error handling.
+    Called by main.py for hierarchical coordinate regression.
+    """
     
     try:
         # Set device if not provided

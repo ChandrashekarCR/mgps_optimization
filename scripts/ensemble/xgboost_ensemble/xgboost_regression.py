@@ -1,3 +1,16 @@
+"""
+XGBoost Regression Script for Ensemble Learning
+
+This script provides an XGBoost-based regression pipeline for use in the ensemble learning framework.
+It supports hyperparameter tuning via Optuna, training, and evaluation. The main functions and classes here
+are imported and used by the main ensemble script (main.py) to provide XGBoost as one of the model options
+for hierarchical coordinate regression tasks (e.g., latitude/longitude prediction).
+
+Usage:
+- Called by main.py for model selection, training, and prediction.
+- Supports both default and tuned hyperparameters.
+"""
+
 import pandas as pd
 import numpy as np
 import xgboost as xgb
@@ -9,6 +22,10 @@ warnings.filterwarnings('ignore')
 
 
 class XGBoostRegressorTuner:
+    """
+    Handles XGBoost hyperparameter tuning, training, and evaluation for regression tasks.
+    Used by the ensemble pipeline.
+    """
     def __init__(self, X_train, y_train, X_test, y_test,
                  random_state=42, n_trials=20, timeout=1200):
         self.X_train = X_train
@@ -22,6 +39,7 @@ class XGBoostRegressorTuner:
         self.final_model = None
 
     def default_params(self):
+        # Returns default XGBoost parameters for regression
         return {
             'objective': 'reg:squarederror',
             'eval_metric': 'rmse',
@@ -38,6 +56,7 @@ class XGBoostRegressorTuner:
         }
 
     def objective(self, trial):
+        # Optuna objective for hyperparameter search
         params = {
             'objective': 'reg:squarederror',
             'eval_metric': 'rmse',
@@ -59,6 +78,7 @@ class XGBoostRegressorTuner:
         return np.mean(scores)
 
     def tune(self):
+        # Runs Optuna study to find best hyperparameters
         study = optuna.create_study(direction='maximize',
                                     pruner=optuna.pruners.MedianPruner(n_startup_trials=5, n_warmup_steps=2))
         study.optimize(self.objective, n_trials=self.n_trials, timeout=self.timeout)
@@ -71,12 +91,14 @@ class XGBoostRegressorTuner:
         return self.best_params
 
     def train(self, params):
+        # Trains XGBoostRegressor with given parameters
         model = xgb.XGBRegressor(**params)
         model.fit(self.X_train, self.y_train)
         self.final_model = model
         return model
 
     def evaluate(self, model=None):
+        # Evaluates model on test set and prints regression metrics
         if model is None:
             model = self.final_model
         preds = model.predict(self.X_test)
@@ -91,8 +113,10 @@ class XGBoostRegressorTuner:
 def run_xgboost_regressor(X_train, y_train, X_test, y_test,
                           tune_hyperparams=False, random_state=42,
                           n_trials=20, timeout=1200, params=None, verbose=True):
-    """XGBoost regressor with proper error handling"""
-    
+    """
+    XGBoost regression wrapper for ensemble with proper error handling.
+    Called by main.py for hierarchical coordinate regression.
+    """
     try:
         # Handle multi-dimensional targets  
         if len(y_train.shape) > 1 and y_train.shape[1] > 1:

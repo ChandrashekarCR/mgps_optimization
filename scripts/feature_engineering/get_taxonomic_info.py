@@ -1,3 +1,20 @@
+"""
+Taxonomic Lineage Retrieval and Feature Engineering Script
+
+This script retrieves taxonomic lineage information for a list of species from NCBI using the Entrez API,
+and augments a Relative Sequence Abundance (RSA) DataFrame with new features based on higher taxonomic ranks.
+It supports saving and loading lineage data, and produces an augmented RSA dataset for downstream analysis.
+
+Main Workflow:
+- Reads species names from input data.
+- Fetches lineage information from NCBI (or loads cached lineage file).
+- Aggregates RSA values by higher taxonomic ranks (e.g., Family, Order, Class).
+- Saves the augmented RSA DataFrame for use in machine learning or statistical analysis.
+
+Usage:
+- Run as a script with arguments for input data, output lineage file, and output augmented RSA file.
+"""
+
 # Import libraries
 import pandas as pd
 import numpy as np

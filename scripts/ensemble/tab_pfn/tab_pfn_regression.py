@@ -1,3 +1,16 @@
+"""
+TabPFN Regression Script for Ensemble Learning
+
+This script provides a TabPFN-based regression pipeline for use in the ensemble learning framework.
+It supports both regular and hyperparameter-tuned TabPFN regressors, device checks, and error handling.
+The main functions here are imported and used by the main ensemble script (main.py) to provide TabPFN
+as one of the model options for hierarchical coordinate regression tasks (e.g., latitude/longitude prediction).
+
+Usage:
+- Called by main.py for model selection, training, and prediction.
+- Supports both default and tuned hyperparameters.
+"""
+
 # Import libraries
 import pandas as pd
 import numpy as np
@@ -107,6 +120,6 @@ def run_tabpfn_regressor(
             'skipped': True,
             'reason': f'error: {str(e)}'
         }
-        
+
 
 

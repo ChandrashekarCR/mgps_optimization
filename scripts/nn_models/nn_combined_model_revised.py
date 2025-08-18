@@ -1,3 +1,36 @@
+"""
+Combined Hierarchical Neural Network Model for Geographical Prediction
+
+This script implements a modular, end-to-end neural network for hierarchical prediction of continent, city, and coordinates
+from input features, specifically designed for the MetaSUB dataset. The model architecture combines three branches:
+- Continent classifier
+- City classifier (using continent probabilities)
+- Coordinate regressor (using continent and city probabilities)
+
+Main Workflow:
+1. Data Processing:
+   - Loads and preprocesses the MetaSUB dataset.
+   - Encodes categorical variables (continent, city) and scales continuous features and coordinates.
+   - Splits data into training and testing sets, maintaining stratification by continent.
+
+2. Combined Model Architecture:
+   - Defines a single PyTorch model with three branches for continent, city, and coordinate prediction.
+   - Each branch can be tuned independently for hidden layers, dropout, and batch normalization.
+
+3. Training & Hyperparameter Tuning:
+   - Supports weighted multi-task loss and early stopping.
+   - Optionally tunes architecture and training parameters using Optuna.
+
+4. Evaluation & Metrics:
+   - Computes classification accuracy for continent and city predictions.
+   - Converts predicted coordinates from cartesian (x, y, z) to latitude/longitude.
+   - Calculates haversine distance errors and provides detailed error analysis, including in-radius accuracy metrics and expected error by prediction group.
+
+5. Results Summary:
+   - Prints classification reports, regression metrics, and grouped error statistics for comprehensive model assessment.
+"""
+
+# Importing libraries
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -83,6 +116,50 @@ def hierarchical_split(X_cont, y_continent, y_city, y_coords, y_lat, y_lon, test
         'train_idx': train_idx,
         'test_idx': test_idx
     }
+
+# --- Additional Functions ---
+def haversine_distance(lat1, lon1, lat2, lon2):
+    """
+    Calculate the great circle distance between two points on the earth (in kilometers)
+    """
+    R = 6371.0
+    lat1_rad = np.radians(lat1)
+    lon1_rad = np.radians(lon1)
+    lat2_rad = np.radians(lat2)
+    lon2_rad = np.radians(lon2)
+    dlat = lat2_rad - lat1_rad
+    dlon = lon2_rad - lon1_rad
+    a = np.sin(dlat/2)**2 + np.cos(lat1_rad) * np.cos(lat2_rad) * np.sin(dlon/2) **2
+    c = 2 * np.arcsin(np.sqrt(a))
+    return R * c
+
+def xyz_to_latlon(xyz_coords):
+    """
+    Convert the XYZ coordinates to latitude and longitude
+    """
+    x, y, z = xyz_coords[:, 0], xyz_coords[:, 1], xyz_coords[:, 2]
+    lat_rad = np.arcsin(np.clip(z, -1, 1))
+    lon_rad = np.arctan2(y, x)
+    lat_deg = np.degrees(lat_rad)
+    lon_deg = np.degrees(lon_rad)
+    return np.stack([lat_deg, lon_deg], axis=1)
+
+def compute_in_radius_metrics(y_true, y_pred, thresholds=None):
+    """
+    Compute % of predictions within given distance thresholds
+    y_true, y_pred: numpy arrays of shape (N, 2) for [lat, lon]
+    thresholds: List of distance thresholds in kilometers (default: [1, 5, 50, 100, 250, 500, 1000, 5000])
+    """
+    if thresholds is None:
+        thresholds = [1, 5, 50, 100, 250, 500, 1000, 5000]
+    distances = haversine_distance(
+        y_true[:, 0], y_true[:, 1], y_pred[:, 0], y_pred[:, 1]
+    )
+    results = {}
+    for r in thresholds:
+        percent = np.mean(distances <= r) * 100
+        results[f"<{r} km"] = percent
+    return results
 
 # --- Dataset ---
 class HierarchicalDataset(Dataset):
@@ -337,49 +414,6 @@ def evaluate_combined(model, loader, device, coord_scaler=None):
         "coord_true": all_coord_true
     }
 
-# --- Additional Functions ---
-def haversine_distance(lat1, lon1, lat2, lon2):
-    """
-    Calculate the great circle distance between two points on the earth (in kilometers)
-    """
-    R = 6371.0
-    lat1_rad = np.radians(lat1)
-    lon1_rad = np.radians(lon1)
-    lat2_rad = np.radians(lat2)
-    lon2_rad = np.radians(lon2)
-    dlat = lat2_rad - lat1_rad
-    dlon = lon2_rad - lon1_rad
-    a = np.sin(dlat/2)**2 + np.cos(lat1_rad) * np.cos(lat2_rad) * np.sin(dlon/2) **2
-    c = 2 * np.arcsin(np.sqrt(a))
-    return R * c
-
-def xyz_to_latlon(xyz_coords):
-    """
-    Convert the XYZ coordinates to latitude and longitude
-    """
-    x, y, z = xyz_coords[:, 0], xyz_coords[:, 1], xyz_coords[:, 2]
-    lat_rad = np.arcsin(np.clip(z, -1, 1))
-    lon_rad = np.arctan2(y, x)
-    lat_deg = np.degrees(lat_rad)
-    lon_deg = np.degrees(lon_rad)
-    return np.stack([lat_deg, lon_deg], axis=1)
-
-def compute_in_radius_metrics(y_true, y_pred, thresholds=None):
-    """
-    Compute % of predictions within given distance thresholds
-    y_true, y_pred: numpy arrays of shape (N, 2) for [lat, lon]
-    thresholds: List of distance thresholds in kilometers (default: [1, 5, 50, 100, 250, 500, 1000, 5000])
-    """
-    if thresholds is None:
-        thresholds = [1, 5, 50, 100, 250, 500, 1000, 5000]
-    distances = haversine_distance(
-        y_true[:, 0], y_true[:, 1], y_pred[:, 0], y_pred[:, 1]
-    )
-    results = {}
-    for r in thresholds:
-        percent = np.mean(distances <= r) * 100
-        results[f"<{r} km"] = percent
-    return results
 
 class CombinedModelTuner:
     """

@@ -1,3 +1,16 @@
+"""
+TabPFN Classification Script for Ensemble Learning
+
+This script provides a TabPFN-based classification pipeline for use in the ensemble learning framework.
+It supports both regular and hyperparameter-tuned TabPFN classifiers, device checks, and error handling.
+The main functions here are imported and used by the main ensemble script (main.py) to provide TabPFN
+as one of the model options for hierarchical classification tasks (e.g., continent/city prediction).
+
+Usage:
+- Called by main.py for model selection, training, and prediction.
+- Supports both default and tuned hyperparameters.
+"""
+
 # Import libraries
 import numpy as np
 import torch
@@ -103,7 +116,7 @@ def run_tabpfn_classifier(
             'skipped': True,
             'reason': f'error: {str(e)}'
         }
-        
+
 
 
 

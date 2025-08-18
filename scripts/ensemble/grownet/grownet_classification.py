@@ -1,3 +1,16 @@
+"""
+GrowNet Classification Script for Ensemble Learning
+
+This script implements the GrowNet boosting-based neural network for classification tasks (e.g., continent/city prediction)
+as part of the ensemble learning pipeline. It supports hyperparameter tuning via Optuna, training, and evaluation.
+The main functions and classes here are imported and used by the main ensemble script (main.py) to provide GrowNet
+as one of the model options for hierarchical classification.
+
+Usage:
+- Called by main.py for model selection, training, and prediction.
+- Supports both default and tuned hyperparameters.
+"""
+
 # This model is used for classification tasks
 
 # Import libraries
@@ -28,6 +41,7 @@ import warnings
 warnings.filterwarnings('ignore')
 
 def grownet_classification_default_params():
+    # Returns default parameters for GrowNet classification
     return {
         "hidden_size": 256,
         "num_nets": 10,
@@ -45,6 +59,9 @@ def grownet_classification_default_params():
 
 
 class GrowNetClassificationTuner:
+    """
+    Handles GrowNet hyperparameter tuning for classification tasks using Optuna.
+    """
     def __init__(self, X_train, y_train, X_val, y_val, params, device="cpu",n_trials = 20, timeout=1200):
         self.X_train = X_train
         self.y_train = y_train
@@ -58,6 +75,7 @@ class GrowNetClassificationTuner:
         self.best_score = None 
 
     def objective(self,trial):
+        # Optuna objective for hyperparameter search (maximize accuracy)
         # Suggest hyperparameters
         params = self.params.copy()
         params.update({
@@ -79,6 +97,7 @@ class GrowNetClassificationTuner:
         return val_acc  # maximize accuracy
 
     def tune(self):
+        # Runs Optuna study to find best hyperparameters
         study = optuna.create_study(direction='maximize')
         study.optimize(self.objective, n_trials=self.n_trials, timeout=self.timeout)
         
@@ -91,11 +110,15 @@ class GrowNetClassificationTuner:
         return self.best_params, self.best_score
 
 
+# Device setup
 device = "cuda" if torch.cuda.is_available() else "cpu"
 print(f"Using device: {device}")
 
-# Dataset class for continent classification
+# Dataset class for continent/city classification
 class GrowNetClassificationTrainDataset(Dataset):
+    """
+    PyTorch Dataset for GrowNet classification training.
+    """
     def __init__(self, features, n_targets):
         self.features = features
         self.n_targets = n_targets
@@ -110,8 +133,11 @@ class GrowNetClassificationTrainDataset(Dataset):
         }
 
     
-# DynamicNet for classification
+# DynamicNet for classification (ensemble of weak learners)
 class GrowNetClassificationDynamicNet(nn.Module):
+    """
+    Ensemble model for GrowNet classification.
+    """
     def __init__(self, c0_classes, lr):
         super(GrowNetClassificationDynamicNet,self).__init__()
         self.models = []
@@ -191,6 +217,9 @@ class GrowNetClassificationDynamicNet(nn.Module):
 
 
 class GrowNetClassificationMLP(nn.Module):
+    """
+    MLP weak learner for GrowNet classification.
+    """
     def __init__(self, input_dim, hidden_dim1, hidden_dim2, output_dim):
         super(GrowNetClassificationMLP,self).__init__()
         self.bn = nn.BatchNorm1d(input_dim)
@@ -225,6 +254,7 @@ class GrowNetClassificationMLP(nn.Module):
     
     @classmethod
     def get_model(cls,stage,params):
+        # Returns a new MLP for the given stage
         if stage == 0:
             dim_in = params['feat_d']
         else:
@@ -241,6 +271,9 @@ class GrowNetClassificationMLP(nn.Module):
 
 
 class GrowNetClassifierUnique:
+    """
+    Main GrowNet classifier interface for training, evaluation, and prediction.
+    """
     def __init__(self, params = None, device="cpu"):
         if params is None:
             self.params = grownet_classification_default_params()
@@ -258,6 +291,7 @@ class GrowNetClassifierUnique:
         return y
 
     def fit(self, X_train, y_train, X_val=None, y_val = None):
+        # Trains the GrowNet ensemble classifier
 
         # Determine the input feature size
         self.params['feat_d'] = X_train.shape[1]
@@ -361,6 +395,7 @@ class GrowNetClassifierUnique:
 
 
     def evaluate(self, X, y):
+        # Evaluates the classifier and returns metrics
         self.net_ensemble.to_eval()
         all_preds = []
         all_preds_prob = []
@@ -392,6 +427,7 @@ class GrowNetClassifierUnique:
         }
     
     def predict(self, X):
+        # Predicts class labels and probabilities for new data
         self.net_ensemble.to_eval()
         all_preds = []
         all_preds_prob = []
@@ -411,6 +447,10 @@ class GrowNetClassifierUnique:
     
 def run_grownet_classifier(X_train,y_train,X_test,y_test,params=None,
                 tune_hyperparams = False, n_trials=20,timeout=1200, verbose=False):
+    """
+    GrowNet classification wrapper for ensemble.
+    Called by main.py for hierarchical classification.
+    """
     # Handle device detection internally
     device = "cuda" if torch.cuda.is_available() else "cpu"
     

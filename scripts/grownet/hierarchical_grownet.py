@@ -1,3 +1,35 @@
+"""
+Hierarchical GrowNet Model for Geographical Prediction
+
+This script implements a hierarchical boosting-based neural network (GrowNet) for predicting continent, city, and coordinates
+from input features, tailored for the MetaSUB dataset. The GrowNet approach builds an ensemble of weak learners (MLPs) in a staged manner,
+where each learner improves upon the previous ensemble's predictions for all hierarchical tasks.
+
+Main Workflow:
+1. Data Processing:
+   - Loads and preprocesses the MetaSUB dataset.
+   - Encodes continent and city labels as one-hot vectors.
+   - Computes and scales 3D coordinates (x, y, z) from latitude/longitude.
+
+2. Hierarchical GrowNet Model:
+   - Defines an ensemble model where each stage adds a new weak learner (MLP).
+   - Each learner predicts continent, city, and coordinates, using previous predictions as additional features.
+
+3. Training & Hyperparameter Tuning:
+   - Supports boosting, corrective steps, weighted multi-task loss, and early stopping.
+   - Optionally tunes architecture and training parameters using Optuna.
+
+4. Evaluation & Metrics:
+   - Computes classification accuracy for continent and city predictions.
+   - Converts predicted coordinates from cartesian (x, y, z) to latitude/longitude.
+   - Calculates haversine distance errors and provides detailed error analysis, including in-radius accuracy metrics and expected error by prediction group.
+
+5. Results Summary:
+   - Prints classification reports, regression metrics, and grouped error statistics for comprehensive model assessment.
+
+This script is intended for researchers and practitioners working on hierarchical geographical prediction tasks using boosting-based neural networks, especially in the context of metagenomic or environmental datasets with multi-level location labels.
+"""
+
 # Import Libraries
 import numpy as np
 import random
@@ -14,6 +46,7 @@ from sklearn.metrics import log_loss, classification_report, confusion_matrix, a
 from sklearn.preprocessing import StandardScaler, PowerTransformer, QuantileTransformer, OneHotEncoder, LabelEncoder
 from sklearn.decomposition import PCA
 from sklearn.model_selection import train_test_split
+from sklearn.metrics import mean_squared_error, r2_score
 from sklearn.utils.class_weight import compute_class_weight
 
 # --- PyTorch imports for deep learning ---
@@ -245,7 +278,6 @@ class HierarchicalDynamicNet(nn.Module):
         
         return middle_feat_cum, final_continent, final_city, final_coords
 
-
 # =========================
 # Hierarchical MLP (Weak Learner)
 # =========================
@@ -442,8 +474,6 @@ def evaluate_hierarchical_model(net_ensemble, test_loader,continent_class_weight
             'coords': coord_targets
         }
     }
-
-
 
 # =========================
 # Training Function
@@ -800,44 +830,6 @@ def process_hierarchical_data(df):
             continent_encoder, city_encoder,coordinate_encoder)
 
 
-# =========================
-# Main Pipeline
-# =========================
-
-# Load and process data
-df = pd.read_csv("/home/chandru/binp37/results/metasub/metasub_training_testing_data.csv")
-x_data, continent_targets, city_targets, coord_targets, continent_encoder, city_encoder, coordinate_encoder = process_hierarchical_data(df)
-
-# Example usage for hyperparameter tuning:
-# tuner = HierarchicalGrowNetTuner(x_data, continent_targets, city_targets, coord_targets, params, device=device, n_trials=20, timeout=1200)
-# best_params, best_score = tuner.tune()
-# params.update(best_params)
-
-# Train model
-trained_mode,metrics = train_hierarchical_grownet(x_data,
-                                                  continent_targets,
-                                                  city_targets,
-                                                  coord_targets, params)
-
-
-# =========================
-# Evaluation & Error Analysis
-# =========================
-
-print("\nClassification Report - Continent")
-print(classification_report(
-    metrics['targets']['continent'],
-    metrics['predictions']['continent'],
-    target_names=list(dict(zip(continent_encoder.transform(continent_encoder.classes_), continent_encoder.classes_)).values())
-))
-
-print("\nClassification Report - City")
-print(classification_report(
-    metrics['targets']['city'],
-    metrics['predictions']['city'],
-    target_names=list(dict(zip(city_encoder.transform(city_encoder.classes_), city_encoder.classes_)).values())
-))
-
 # --- Error calculation and analysis section (added for comparison with main.py) ---
 
 def haversine_distance(lat1, lon1, lat2, lon2):
@@ -990,13 +982,47 @@ def error_calc_hierarchical_grownet(metrics, continent_encoder, city_encoder, co
     print(f"Coordinate Prediction Metrics (degrees):") # R2 value after converting to lat/lon
     print(f"R^2:  {r2:.5f}")
 
+# =========================
+# Main Pipeline
+# =========================
+
+# Load and process data
+df = pd.read_csv("/home/chandru/binp37/results/metasub/metasub_training_testing_data.csv")
+x_data, continent_targets, city_targets, coord_targets, continent_encoder, city_encoder, coordinate_encoder = process_hierarchical_data(df)
+
+# Example usage for hyperparameter tuning:
+# tuner = HierarchicalGrowNetTuner(x_data, continent_targets, city_targets, coord_targets, params, device=device, n_trials=20, timeout=1200)
+# best_params, best_score = tuner.tune()
+# params.update(best_params)
+
+# Train model
+trained_mode,metrics = train_hierarchical_grownet(x_data,
+                                                  continent_targets,
+                                                  city_targets,
+                                                  coord_targets, params)
+
+
+# =========================
+# Evaluation & Error Analysis
+# =========================
+
+print("\nClassification Report - Continent")
+print(classification_report(
+    metrics['targets']['continent'],
+    metrics['predictions']['continent'],
+    target_names=list(dict(zip(continent_encoder.transform(continent_encoder.classes_), continent_encoder.classes_)).values())
+))
+
+print("\nClassification Report - City")
+print(classification_report(
+    metrics['targets']['city'],
+    metrics['predictions']['city'],
+    target_names=list(dict(zip(city_encoder.transform(city_encoder.classes_), city_encoder.classes_)).values())
+))
 
 # --- Run error calculation for hierarchical GrowNet ---
 print("\n--- Hierarchical GrowNet Error Analysis ---")
 error_calc_hierarchical_grownet(metrics, continent_encoder, city_encoder, coordinate_encoder)
-
-# Print coordinate regression metrics
-from sklearn.metrics import mean_squared_error, r2_score
 
 true_coords = np.array(metrics['targets']['coords'])
 pred_coords = np.array(metrics['predictions']['coords'])
