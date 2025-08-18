@@ -1,3 +1,16 @@
+"""
+Simple Neural Network Classification Script for Ensemble Learning
+
+This script provides a simple neural network-based classification pipeline for use in the ensemble learning framework.
+It supports hyperparameter tuning via Optuna, training, and evaluation. The main functions and classes here
+are imported and used by the main ensemble script (main.py) to provide a neural network as one of the model options
+for hierarchical classification tasks (e.g., continent/city prediction).
+
+Usage:
+- Called by main.py for model selection, training, and prediction.
+- Supports both default and tuned hyperparameters.
+"""
+
 # This model is used for classification tasks with a simple neural network
 
 # Import libraries
@@ -49,6 +62,10 @@ def default_classification_params():
 
 
 class NNClassificationTuner:
+    """
+    Handles neural network hyperparameter tuning for classification tasks using Optuna.
+    Used by the ensemble pipeline.
+    """
     def __init__(self, X_train, y_train, X_val=None, y_val=None, params=None, device="cpu", n_trials=20, timeout=1200):
         self.X_train = X_train
         self.y_train = y_train
@@ -108,6 +125,9 @@ print(f"Using device: {device}")
 
 # Dataset class for classification
 class ClassificationTrainDataset(Dataset):
+    """
+    PyTorch Dataset for simple neural network classification training.
+    """
     def __init__(self, features, n_targets):
         self.features = features
         self.n_targets = n_targets
@@ -124,6 +144,9 @@ class ClassificationTrainDataset(Dataset):
 
 # Neural Network
 class ClassificationNeuralNetwork(nn.Module):
+    """
+    Simple feedforward neural network for classification.
+    """
     def __init__(self, input_dim, output_dim, hidden_dim = [128,64], use_batch_norm=True,
                   initial_dropout:float = 0.2, final_dropout:float =0.7, random_state=42):
         super(ClassificationNeuralNetwork,self).__init__()
@@ -210,6 +233,9 @@ class ClassificationNeuralNetwork(nn.Module):
 
 
 class NNClassifier:
+    """
+    Main neural network classifier interface for training, evaluation, and prediction.
+    """
     def __init__(self, params=None, device="cpu"):
         if params is None:
             self.params = default_classification_params()
@@ -440,7 +466,10 @@ class NNClassifier:
 def run_nn_classifier(X_train, y_train, X_test, y_test,
                       tune_hyperparams=False, params=None,
                       n_trials=20, timeout=1200, verbose=False):
-    """Run the neural network classifier"""
+    """
+    Simple neural network classification wrapper for ensemble.
+    Called by main.py for hierarchical classification.
+    """
     
     # Handle device detection internally
     device = "cuda" if torch.cuda.is_available() else "cpu"

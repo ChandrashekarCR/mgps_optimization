@@ -1,3 +1,16 @@
+"""
+GrowNet Regression Script for Ensemble Learning
+
+This script implements the GrowNet boosting-based neural network for regression tasks (e.g., coordinate prediction)
+as part of the ensemble learning pipeline. It supports hyperparameter tuning via Optuna, training, and evaluation.
+The main functions and classes here are imported and used by the main ensemble script (main.py) to provide GrowNet
+as one of the model options for hierarchical coordinate regression.
+
+Usage:
+- Called by main.py for model selection, training, and prediction.
+- Supports both default and tuned hyperparameters.
+"""
+
 # This model is used for regression tasks
 
 # Import libraries
@@ -31,6 +44,7 @@ print(f"Using device: {device}")
 
 
 def grownet_regression_default_params():
+    # Returns default parameters for GrowNet regression
     return {
         "hidden_size": 256,
         "num_nets": 10,
@@ -49,6 +63,9 @@ def grownet_regression_default_params():
 
 
 class GrowNetRegressionTuner:
+    """
+    Handles GrowNet hyperparameter tuning for regression tasks using Optuna.
+    """
     def __init__(self, X_train, y_train, X_val, y_val, params, device="cpu",n_trials = 20, timeout=1200):
         self.X_train = X_train
         self.y_train = y_train
@@ -62,6 +79,7 @@ class GrowNetRegressionTuner:
         self.best_score = None 
 
     def objective(self,trial):
+        # Optuna objective for hyperparameter search (minimize RMSE)
         # Suggest hyperparameters
         params = self.params.copy()
         params.update({
@@ -82,6 +100,7 @@ class GrowNetRegressionTuner:
         return -val_metrics['rmse'] # minimize
 
     def tune(self):
+        # Runs Optuna study to find best hyperparameters
         study = optuna.create_study(direction='maximize')
         study.optimize(self.objective, n_trials=self.n_trials, timeout=self.timeout)
         
@@ -96,6 +115,9 @@ class GrowNetRegressionTuner:
 
 # Dataset class for regression
 class GrowNetRegressionTrainDataset(Dataset):
+    """
+    PyTorch Dataset for GrowNet regression training.
+    """
     def __init__(self, features, targets):
         self.features = features
         self.targets = targets
@@ -110,8 +132,11 @@ class GrowNetRegressionTrainDataset(Dataset):
         }
 
     
-# DynamicNet for regression
+# DynamicNet for regression (ensemble of weak learners)
 class GrowNetRegressionDynamicNet(nn.Module):
+    """
+    Ensemble model for GrowNet regression.
+    """
     def __init__(self, c0_coords, lr):
         super(GrowNetRegressionDynamicNet, self).__init__()
         self.models = nn.ModuleList()
@@ -186,6 +211,9 @@ class GrowNetRegressionDynamicNet(nn.Module):
 
 
 class GrowNetRegressionMLP(nn.Module):
+    """
+    MLP weak learner for GrowNet regression.
+    """
     def __init__(self, input_dim, hidden_dim1, hidden_dim2, output_dim):
         super(GrowNetRegressionMLP,self).__init__()
         self.bn = nn.BatchNorm1d(input_dim)
@@ -212,6 +240,7 @@ class GrowNetRegressionMLP(nn.Module):
 
     @classmethod
     def get_model(cls,stage,params):
+        # Returns a new MLP for the given stage
         dim_in = params['feat_d']
         model = cls(
             dim_in,
@@ -223,6 +252,9 @@ class GrowNetRegressionMLP(nn.Module):
 
 
 class GrowNetRegressorUnique:
+    """
+    Main GrowNet regressor interface for training, evaluation, and prediction.
+    """
     def __init__(self, params = None, device="cpu"):
         if params is None:
             self.params = grownet_regression_default_params()
@@ -232,6 +264,7 @@ class GrowNetRegressorUnique:
         self.net_ensemble = None
 
     def fit(self,X_train,y_train, X_val=None, y_val = None):
+        # Trains the GrowNet ensemble regressor
         # Split validation if not provided
         if X_val is None or y_val is None:
             X_train, X_val, y_train, y_val = train_test_split(X_train, y_train,test_size=self.params['val_split'],random_state=self.params['random_state'])
@@ -306,6 +339,7 @@ class GrowNetRegressorUnique:
 
 
     def evaluate(self, X, y):
+        # Evaluates the regressor and returns metrics
         self.net_ensemble.to_eval()
         all_preds = []
         all_targets = []
@@ -332,6 +366,7 @@ class GrowNetRegressorUnique:
         }
 
     def predict(self, X):
+        # Predicts regression outputs for new data
         self.net_ensemble.to_eval()
         all_preds = []
         loader = DataLoader(GrowNetRegressionTrainDataset(X, np.zeros((X.shape[0], self.params['n_outputs']))), batch_size=self.params['batch_size'], shuffle=False)
@@ -346,8 +381,10 @@ class GrowNetRegressorUnique:
 def run_grownet_regressor(X_train, y_train, X_test, y_test, params=None,
                           tune_hyperparams=False, n_trials=20, timeout=1200, 
                           device=None, verbose=True):
-    """Run GrowNet regressor with proper error handling and interface consistency"""
-    
+    """
+    GrowNet regression wrapper for ensemble with proper error handling and interface consistency.
+    Called by main.py for hierarchical coordinate regression.
+    """
     try:
         if device is None:
             device = "cuda" if torch.cuda.is_available() else "cpu"

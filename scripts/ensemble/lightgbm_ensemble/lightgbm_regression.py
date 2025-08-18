@@ -1,3 +1,16 @@
+"""
+LightGBM Regression Script for Ensemble Learning
+
+This script provides a LightGBM-based regression pipeline for use in the ensemble learning framework.
+It supports hyperparameter tuning via Optuna, training, and evaluation. The main functions and classes here
+are imported and used by the main ensemble script (main.py) to provide LightGBM as one of the model options
+for hierarchical coordinate regression tasks (e.g., latitude/longitude prediction).
+
+Usage:
+- Called by main.py for model selection, training, and prediction.
+- Supports both default and tuned hyperparameters.
+"""
+
 import pandas as pd
 import numpy as np
 import lightgbm as lgb
@@ -9,6 +22,10 @@ warnings.filterwarnings('ignore')
 
 
 class LightGBMRegressorTuner:
+    """
+    Handles LightGBM hyperparameter tuning, training, and evaluation for regression tasks.
+    Used by the ensemble pipeline.
+    """
     def __init__(self, X_train, y_train, X_test, y_test,
                  random_state=42, n_trials=20, timeout=1200):
         self.X_train = X_train
@@ -22,6 +39,7 @@ class LightGBMRegressorTuner:
         self.final_model = None
 
     def default_params(self):
+        # Returns default LightGBM parameters for regression
         return {
             'objective': 'regression',
             'metric': 'rmse',
@@ -37,6 +55,7 @@ class LightGBMRegressorTuner:
         }
 
     def objective(self, trial):
+        # Optuna objective for hyperparameter search
         params = {
             'objective': 'regression',
             'metric': 'rmse',
@@ -57,6 +76,7 @@ class LightGBMRegressorTuner:
         return np.mean(scores)
 
     def tune(self):
+        # Runs Optuna study to find best hyperparameters
         study = optuna.create_study(direction='maximize',
                                     pruner=optuna.pruners.MedianPruner(n_startup_trials=5, n_warmup_steps=2))
         study.optimize(self.objective, n_trials=self.n_trials, timeout=self.timeout)
@@ -69,12 +89,14 @@ class LightGBMRegressorTuner:
         return self.best_params
 
     def train(self, params):
+        # Trains LightGBMRegressor with given parameters
         model = lgb.LGBMRegressor(**params, random_state=self.random_state)
         model.fit(self.X_train, self.y_train)
         self.final_model = model
         return model
 
     def evaluate(self, model=None):
+        # Evaluates model on test set and prints regression metrics
         if model is None:
             model = self.final_model
         preds = model.predict(self.X_test)
@@ -89,8 +111,10 @@ class LightGBMRegressorTuner:
 def run_lightgbm_regressor(X_train, y_train, X_test, y_test,
                           tune_hyperparams=False, random_state=42,
                           n_trials=20, timeout=1200, params=None, verbose=True):
-    """LightGBM regressor with proper error handling"""
-    
+    """
+    LightGBM regression wrapper for ensemble with proper error handling.
+    Called by main.py for hierarchical coordinate regression.
+    """
     try:
         # Handle multi-dimensional targets
         if len(y_train.shape) > 1 and y_train.shape[1] > 1:

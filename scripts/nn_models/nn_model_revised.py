@@ -1,3 +1,35 @@
+"""
+Hierarchical Neural Network Model for Geographical Prediction
+
+This script implements a hierarchical deep learning pipeline for predicting geographical information (continent, city, and coordinates)
+from input features, such as metagenomic or environmental data. The workflow is designed for the MetaSUB dataset, which contains
+samples with associated latitude, longitude, continent, and city labels.
+
+Main Workflow:
+1. Data Processing:
+   - Loads and preprocesses the MetaSUB dataset.
+   - Encodes categorical variables (continent, city) and scales continuous features and coordinates.
+   - Splits data into training and testing sets, maintaining stratification by continent.
+
+2. Hierarchical Modeling:
+   - Level 1: Predicts continent using a neural network classifier.
+   - Level 2: Augments features with continent probabilities and predicts city using another classifier.
+   - Level 3: Augments features with both continent and city probabilities and predicts 3D coordinates using a neural network regressor.
+
+3. Model Training & Tuning:
+   - Supports hyperparameter tuning via Optuna for both classification and regression tasks.
+   - Implements early stopping, batch normalization, dropout, and gradient clipping for robust training.
+
+4. Evaluation & Metrics:
+   - Computes classification accuracy for continent and city predictions.
+   - Converts predicted coordinates from cartesian (x, y, z) to latitude/longitude.
+   - Calculates haversine distance errors and provides detailed error analysis, including in-radius accuracy metrics per continent/city.
+
+5. Results Summary:
+   - Prints overall accuracy, regression metrics, and grouped error statistics for comprehensive model assessment.
+"""
+
+
 # Importing libraries
 import torch
 import torch.nn as nn
@@ -107,6 +139,198 @@ def hierarchical_split(X_cont, y_continent, y_city, y_coords, y_lat, y_lon, test
         'train_idx': train_idx,
         'test_idx': test_idx
     }
+
+# Distance between two points on the earth
+def haversine_distance(lat1,lon1,lat2,lon2):
+    """
+    Calculate the great circle distance between two points on the earth (in km).
+    """
+    # Radius of the earth
+    R = 6371.0
+
+    # Convert from degrees to radians
+    lat1_rad = np.radians(lat1)
+    lon1_rad = np.radians(lon1)
+    lat2_rad = np.radians(lat2)
+    lon2_rad = np.radians(lon2)
+
+    dlat = lat2_rad - lat1_rad
+    dlon = lon2_rad - lon1_rad
+
+    a = np.sin(dlat/2)**2 + np.cos(lat1_rad) * np.cos(lat2_rad) * np.sin(dlon/2) **2
+    c = 2 * np.arcsin(np.sqrt(a))
+
+    return R * c # in kilometers
+
+# Convert 3D cartesian coordinates to latitude and longitude.
+def xyz_to_latlon(xyz_coords):
+    """
+    Convert 3D cartesian coordinates to latitude and longitude.
+    """
+    x,y,z = xyz_coords[:,0],xyz_coords[:,1],xyz_coords[:,2]
+
+    # Convert to latitude and longitude
+    lat_rad = np.arcsin(np.clip(z,-1,1)) # Clip to avoid numerical issues
+    lon_rad = np.arctan2(y,x)
+
+    # Convert to degrees
+    lat_deg = np.degrees(lat_rad)
+    lon_deg = np.degrees(lon_rad)
+
+    return np.stack([lat_deg,lon_deg],axis=1)
+
+# =========================
+# Error Calculation & Metrics
+# =========================
+
+def error_calc(test_conts, pred_conts, test_city, pred_city, test_lat, test_lon, pred_lat, pred_lon):
+    """
+    Calculates error metrics for hierarchical model predictions:
+    - Classification correctness
+    - Haversine distance errors
+    - Grouped error statistics
+    - In-radius accuracy metrics
+    """
+    error_df = pd.DataFrame({
+        'true_cont': test_conts,
+        'pred_cont': pred_conts,
+        'true_city': test_city,
+        'pred_city': pred_city,
+        'true_lat': test_lat,
+        'true_lon': test_lon,
+        'pred_lat': pred_lat,
+        'pred_lon': pred_lon
+    })
+
+    # Assign true continent and city names
+    error_df['true_cont_name'] = error_df['true_cont'].map(lambda i: processed_data['continents'][i])
+    error_df['pred_cont_name'] = error_df['pred_cont'].map(lambda i: processed_data['continents'][i])
+
+    error_df['true_city_name'] = error_df['true_city'].map(lambda i: processed_data['cities'][i])
+    error_df['pred_city_name'] = error_df['pred_city'].map(lambda i: processed_data['cities'][i])
+
+    cont_support_map = dict(zip(np.unique(error_df['true_cont_name'], return_counts=True)[0], np.unique(error_df['true_cont_name'], return_counts=True)[1]))
+    city_support_map = dict(zip(np.unique(error_df['true_city_name'], return_counts=True)[0], np.unique(error_df['true_city_name'], return_counts=True)[1]))
+
+    # Step 1: Compute the correctness
+    error_df['continent_correct'] = error_df['true_cont'] == error_df['pred_cont']
+    error_df['city_correct'] = error_df['true_city'] == error_df['pred_city']
+
+    # Step 2: Calculate the haversine distance
+    error_df['coord_error'] = haversine_distance(error_df['true_lat'], error_df['true_lon'], error_df['pred_lat'], error_df['pred_lon'])
+
+    print(f'The median distance error is {np.median(error_df["coord_error"].values)}')
+    print(f'The mean distance error is {np.mean(error_df["coord_error"].values)}')
+    print(f'The max distance error is {np.max(error_df["coord_error"].values)}')
+
+    # Step 3: Group into 4 categories
+    def group_label(row):
+        if row['continent_correct'] and row['city_correct']:
+            return 'C_correct Z_correct'
+        elif row['continent_correct'] and not row['city_correct']:
+            return 'C_correct Z_wrong'
+        elif not row['continent_correct'] and row['city_correct']:
+            return 'C_wrong Z_correct'
+        else:
+            return 'C_wrong Z_wrong'
+        
+    # Create the error group column
+    error_df['error_group'] = error_df.apply(group_label, axis=1)
+
+    # Now we proceed with grouping
+    group_stats = error_df.groupby('error_group')['coord_error'].agg([
+        ('count', 'count'),
+        ('mean_error_km', 'mean'),
+        ('median_error_km', 'median')
+    ])
+
+    # Step 5: Calculate proportion and expected error.
+    """
+    P(C=C*) : Probability of continent predicting correct continent
+    P(Z=Z*) : Probability of city predicting correct city
+    E(D|condition) : Expected distance error under that condition
+
+    E(D) = P(C=C*,Z=Z*)*E(D|C=C*,Z=Z*)+ -> ideal condition continent is correct and city is also correct
+            P(C=C*,Z!=Z*)*E(D|C=C*,Z!=Z*)+ -> continent is correct and city is wrong
+            P(C!=C*,Z=Z*)*E(D|C!=C*,Z=Z*)+ -> city is correct but continent is wrong
+            P(C!=C*,Z!=Z*)*E(D|C!=C*,Z!=Z*) -> both continent and city are wrong
+    """
+    total = len(error_df)
+    group_stats['proportion'] = group_stats['count'] / total
+    group_stats['weighted_error'] = group_stats['mean_error_km'] * group_stats['proportion']
+    expected_total_error = group_stats['weighted_error'].sum()
+    print(group_stats)
+    print(f"Expected Coordinate Error E[D]: {expected_total_error:.2f} km")
+
+    def compute_in_radius_metrics(y_true, y_pred, thresholds=None):
+        """
+        Compute % of predictions within given distance thresholds
+        y_true, y_pred: numpy arrays of shape (N, 2) for [lat, lon]
+        thresholds: List of distance thresholds in kilometers (default: [1, 5, 50, 100, 250, 500, 1000, 5000])
+        """
+        if thresholds is None:
+            thresholds = [1, 5, 50, 100, 250, 500, 1000, 5000]
+
+        distances = haversine_distance(
+            y_true[:, 0], y_true[:, 1], y_pred[:, 0], y_pred[:, 1]
+        )
+
+        results = {}
+        for r in thresholds:
+            percent = np.mean(distances <= r) * 100
+            results[f"<{r} km"] = percent
+
+        return results
+
+    metrics = compute_in_radius_metrics(y_true=np.stack([test_lat, test_lon], axis=1), y_pred=np.stack([pred_lat, pred_lon], axis=1))
+
+    print("In-Radius Accuracy Metrics:")
+    for k, v in metrics.items():
+        print(f"{k:>8}: {v:.2f}%")
+        
+    def in_radius_by_group(df, group_col, thresholds=[1, 5, 50, 100, 250, 500, 1000, 5000]):
+        """
+        Compute in-radius accuracy for a group column (continent, city, or continent+city)
+        """
+        df = df.copy()
+        df['coord_error'] = haversine_distance(
+            df['true_lat'].values, df['true_lon'].values,
+            df['pred_lat'].values, df['pred_lon'].values
+        )
+
+        results = {}
+        grouped = df.groupby(group_col)
+
+        for group_name, group_df in grouped:
+            res = {}
+            errors = group_df['coord_error'].values
+            for r in thresholds:
+                res[f"<{r} km"] = np.mean(errors <= r) * 100  # in %
+            results[group_name] = res
+
+        return pd.DataFrame(results).T  # Transpose for better readability
+    
+    continent_metrics = in_radius_by_group(error_df, group_col='true_cont_name')
+    print("In-Radius Accuracy per Continent")
+    continent_metrics['continent_support'] = continent_metrics.index.map(cont_support_map)
+    print(continent_metrics.round(2))
+
+    city_metrics = in_radius_by_group(error_df, group_col='true_city_name')
+    print("In-Radius Accuracy per City")
+    city_metrics['city_support'] = city_metrics.index.map(city_support_map)
+    print(city_metrics.round(2))
+
+    error_df['continent_city'] = error_df['true_cont_name'] + " / " + error_df['true_city_name']
+    cont_city_metrics = in_radius_by_group(error_df, group_col='continent_city')
+    cont_city_metrics['continent_support'] = cont_city_metrics.index.map(lambda x: x.split("/")[-1].strip()).map(city_support_map)
+    print("In-Radius Accuracy per Continent-City")
+    print(cont_city_metrics.round(2))
+
+    # Print the R2, MAE and RMSE for the coordinate predictions
+    from sklearn.metrics import r2_score, mean_squared_error, mean_absolute_error
+    r2 = r2_score(error_df[['true_lat', 'true_lon']].values, error_df[['pred_lat', 'pred_lon']].values)
+    print(f"Coordinate Prediction Metrics (degrees):") # R2 value afetr converting to lat/lon
+    print(f"  R2: {r2:.4f}")
 
 # =========================
 # Load and Prepare Data
@@ -963,44 +1187,6 @@ def run_nn_regressor(X_train, y_train, X_test, y_test, device="cuda",
         'params': params
     }
 
-# Distance between two points on the earth
-def haversine_distance(lat1,lon1,lat2,lon2):
-    """
-    Calculate the great circle distance between two points on the earth (in km).
-    """
-    # Radius of the earth
-    R = 6371.0
-
-    # Convert from degrees to radians
-    lat1_rad = np.radians(lat1)
-    lon1_rad = np.radians(lon1)
-    lat2_rad = np.radians(lat2)
-    lon2_rad = np.radians(lon2)
-
-    dlat = lat2_rad - lat1_rad
-    dlon = lon2_rad - lon1_rad
-
-    a = np.sin(dlat/2)**2 + np.cos(lat1_rad) * np.cos(lat2_rad) * np.sin(dlon/2) **2
-    c = 2 * np.arcsin(np.sqrt(a))
-
-    return R * c # in kilometers
-
-def xyz_to_latlon(xyz_coords):
-    """
-    Convert 3D cartesian coordinates to latitude and longitude.
-    """
-    x,y,z = xyz_coords[:,0],xyz_coords[:,1],xyz_coords[:,2]
-
-    # Convert to latitude and longitude
-    lat_rad = np.arcsin(np.clip(z,-1,1)) # Clip to avoid numerical issues
-    lon_rad = np.arctan2(y,x)
-
-    # Convert to degrees
-    lat_deg = np.degrees(lat_rad)
-    lon_deg = np.degrees(lon_rad)
-
-    return np.stack([lat_deg,lon_deg],axis=1)
-
 # =========================
 # Hierarchical Model Pipeline
 # =========================
@@ -1120,7 +1306,6 @@ def run_hierarchical_nn_model(X_train, X_test, y_train_cont, y_test_cont,
         'coordinate_predictions': coord_results['predictions']
     }
 
-
 # =========================
 # Run Hierarchical Model
 # =========================
@@ -1135,160 +1320,6 @@ hierarchical_results = run_hierarchical_nn_model(
     n_trials=20, 
     timeout=100
 )
-
-# =========================
-# Error Calculation & Metrics
-# =========================
-
-def error_calc(test_conts, pred_conts, test_city, pred_city, test_lat, test_lon, pred_lat, pred_lon):
-    """
-    Calculates error metrics for hierarchical model predictions:
-    - Classification correctness
-    - Haversine distance errors
-    - Grouped error statistics
-    - In-radius accuracy metrics
-    """
-    error_df = pd.DataFrame({
-        'true_cont': test_conts,
-        'pred_cont': pred_conts,
-        'true_city': test_city,
-        'pred_city': pred_city,
-        'true_lat': test_lat,
-        'true_lon': test_lon,
-        'pred_lat': pred_lat,
-        'pred_lon': pred_lon
-    })
-
-    # Assign true continent and city names
-    error_df['true_cont_name'] = error_df['true_cont'].map(lambda i: processed_data['continents'][i])
-    error_df['pred_cont_name'] = error_df['pred_cont'].map(lambda i: processed_data['continents'][i])
-
-    error_df['true_city_name'] = error_df['true_city'].map(lambda i: processed_data['cities'][i])
-    error_df['pred_city_name'] = error_df['pred_city'].map(lambda i: processed_data['cities'][i])
-
-    cont_support_map = dict(zip(np.unique(error_df['true_cont_name'], return_counts=True)[0], np.unique(error_df['true_cont_name'], return_counts=True)[1]))
-    city_support_map = dict(zip(np.unique(error_df['true_city_name'], return_counts=True)[0], np.unique(error_df['true_city_name'], return_counts=True)[1]))
-
-    # Step 1: Compute the correctness
-    error_df['continent_correct'] = error_df['true_cont'] == error_df['pred_cont']
-    error_df['city_correct'] = error_df['true_city'] == error_df['pred_city']
-
-    # Step 2: Calculate the haversine distance
-    error_df['coord_error'] = haversine_distance(error_df['true_lat'], error_df['true_lon'], error_df['pred_lat'], error_df['pred_lon'])
-
-    print(f'The median distance error is {np.median(error_df["coord_error"].values)}')
-    print(f'The mean distance error is {np.mean(error_df["coord_error"].values)}')
-    print(f'The max distance error is {np.max(error_df["coord_error"].values)}')
-
-    # Step 3: Group into 4 categories
-    def group_label(row):
-        if row['continent_correct'] and row['city_correct']:
-            return 'C_correct Z_correct'
-        elif row['continent_correct'] and not row['city_correct']:
-            return 'C_correct Z_wrong'
-        elif not row['continent_correct'] and row['city_correct']:
-            return 'C_wrong Z_correct'
-        else:
-            return 'C_wrong Z_wrong'
-        
-    # Create the error group column
-    error_df['error_group'] = error_df.apply(group_label, axis=1)
-
-    # Now we proceed with grouping
-    group_stats = error_df.groupby('error_group')['coord_error'].agg([
-        ('count', 'count'),
-        ('mean_error_km', 'mean'),
-        ('median_error_km', 'median')
-    ])
-
-    # Step 5: Calculate proportion and expected error.
-    """
-    P(C=C*) : Probability of continent predicting correct continent
-    P(Z=Z*) : Probability of city predicting correct city
-    E(D|condition) : Expected distance error under that condition
-
-    E(D) = P(C=C*,Z=Z*)*E(D|C=C*,Z=Z*)+ -> ideal condition continent is correct and city is also correct
-            P(C=C*,Z!=Z*)*E(D|C=C*,Z!=Z*)+ -> continent is correct and city is wrong
-            P(C!=C*,Z=Z*)*E(D|C!=C*,Z=Z*)+ -> city is correct but continent is wrong
-            P(C!=C*,Z!=Z*)*E(D|C!=C*,Z!=Z*) -> both continent and city are wrong
-    """
-    total = len(error_df)
-    group_stats['proportion'] = group_stats['count'] / total
-    group_stats['weighted_error'] = group_stats['mean_error_km'] * group_stats['proportion']
-    expected_total_error = group_stats['weighted_error'].sum()
-    print(group_stats)
-    print(f"Expected Coordinate Error E[D]: {expected_total_error:.2f} km")
-
-    def compute_in_radius_metrics(y_true, y_pred, thresholds=None):
-        """
-        Compute % of predictions within given distance thresholds
-        y_true, y_pred: numpy arrays of shape (N, 2) for [lat, lon]
-        thresholds: List of distance thresholds in kilometers (default: [1, 5, 50, 100, 250, 500, 1000, 5000])
-        """
-        if thresholds is None:
-            thresholds = [1, 5, 50, 100, 250, 500, 1000, 5000]
-
-        distances = haversine_distance(
-            y_true[:, 0], y_true[:, 1], y_pred[:, 0], y_pred[:, 1]
-        )
-
-        results = {}
-        for r in thresholds:
-            percent = np.mean(distances <= r) * 100
-            results[f"<{r} km"] = percent
-
-        return results
-
-    metrics = compute_in_radius_metrics(y_true=np.stack([test_lat, test_lon], axis=1), y_pred=np.stack([pred_lat, pred_lon], axis=1))
-
-    print("In-Radius Accuracy Metrics:")
-    for k, v in metrics.items():
-        print(f"{k:>8}: {v:.2f}%")
-        
-    def in_radius_by_group(df, group_col, thresholds=[1, 5, 50, 100, 250, 500, 1000, 5000]):
-        """
-        Compute in-radius accuracy for a group column (continent, city, or continent+city)
-        """
-        df = df.copy()
-        df['coord_error'] = haversine_distance(
-            df['true_lat'].values, df['true_lon'].values,
-            df['pred_lat'].values, df['pred_lon'].values
-        )
-
-        results = {}
-        grouped = df.groupby(group_col)
-
-        for group_name, group_df in grouped:
-            res = {}
-            errors = group_df['coord_error'].values
-            for r in thresholds:
-                res[f"<{r} km"] = np.mean(errors <= r) * 100  # in %
-            results[group_name] = res
-
-        return pd.DataFrame(results).T  # Transpose for better readability
-    
-    continent_metrics = in_radius_by_group(error_df, group_col='true_cont_name')
-    print("In-Radius Accuracy per Continent")
-    continent_metrics['continent_support'] = continent_metrics.index.map(cont_support_map)
-    print(continent_metrics.round(2))
-
-    city_metrics = in_radius_by_group(error_df, group_col='true_city_name')
-    print("In-Radius Accuracy per City")
-    city_metrics['city_support'] = city_metrics.index.map(city_support_map)
-    print(city_metrics.round(2))
-
-    error_df['continent_city'] = error_df['true_cont_name'] + " / " + error_df['true_city_name']
-    cont_city_metrics = in_radius_by_group(error_df, group_col='continent_city')
-    cont_city_metrics['continent_support'] = cont_city_metrics.index.map(lambda x: x.split("/")[-1].strip()).map(city_support_map)
-    print("In-Radius Accuracy per Continent-City")
-    print(cont_city_metrics.round(2))
-
-    # Print the R2, MAE and RMSE for the coordinate predictions
-    from sklearn.metrics import r2_score, mean_squared_error, mean_absolute_error
-    r2 = r2_score(error_df[['true_lat', 'true_lon']].values, error_df[['pred_lat', 'pred_lon']].values)
-    print(f"Coordinate Prediction Metrics (degrees):") # R2 value afetr converting to lat/lon
-    print(f"  R2: {r2:.4f}")
-
 
 # Convert predicted coordinates from cartesian to lat/lon
 predicted_coords = hierarchical_results['coordinate_predictions']

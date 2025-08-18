@@ -1,3 +1,16 @@
+"""
+XGBoost Classification Script for Ensemble Learning
+
+This script provides an XGBoost-based classification pipeline for use in the ensemble learning framework.
+It supports hyperparameter tuning via Optuna, training, and evaluation. The main functions and classes here
+are imported and used by the main ensemble script (main.py) to provide XGBoost as one of the model options
+for hierarchical classification tasks (e.g., continent/city prediction).
+
+Usage:
+- Called by main.py for model selection, training, and prediction.
+- Supports both default and tuned hyperparameters.
+"""
+
 # Import libraries
 import pandas as pd
 import numpy as np
@@ -11,6 +24,10 @@ warnings.filterwarnings('ignore')
 
 
 class XGBoostTuner:
+    """
+    Handles XGBoost hyperparameter tuning, training, and evaluation for classification tasks.
+    Used by the ensemble pipeline.
+    """
     def __init__(self, X_train, y_train, X_test, y_test, random_state=42, n_trials=20, timeout=1200):
         self.X_train = X_train
         self.y_train = y_train
@@ -23,6 +40,7 @@ class XGBoostTuner:
         self.final_model = None
 
     def default_params(self):
+        # Returns default XGBoost parameters for classification
         return {
             'objective': 'multi:softprob',
             'num_class': len(np.unique(self.y_train)),
@@ -40,6 +58,7 @@ class XGBoostTuner:
         }
 
     def objective(self, trial):
+        # Optuna objective for hyperparameter search
         params = {
             'objective': 'multi:softprob',
             'num_class': len(np.unique(self.y_train)),
@@ -62,6 +81,7 @@ class XGBoostTuner:
         return scores.mean()
 
     def tune(self):
+        # Runs Optuna study to find best hyperparameters
         study = optuna.create_study(direction='maximize',pruner=optuna.pruners.MedianPruner(n_startup_trials=5, n_warmup_steps=2)) # Pruning helps the in stopping bad trials
         study.optimize(self.objective, n_trials=self.n_trials, timeout=self.timeout)
         self.best_params = study.best_params
@@ -74,13 +94,14 @@ class XGBoostTuner:
         return self.best_params
 
     def train(self, params):
+        # Trains XGBoostClassifier with given parameters
         model = xgb.XGBClassifier(**params, use_label_encoder=False)
         model.fit(self.X_train, self.y_train)
         self.final_model = model
         return model
 
-    # Evaluate on the test dataset on how the model 
     def evaluate(self, model=None):
+        # Evaluates model on test set and prints classification report
         if model is None:
             model = self.final_model
         preds = model.predict(self.X_test)
@@ -96,7 +117,10 @@ class XGBoostTuner:
 def run_xgboost_classifier(X_train, y_train, X_test, y_test, 
                            tune_hyperparams=False, random_state=42, 
                            n_trials=20, timeout=1200, params=None, verbose=False):
-    
+    """
+    XGBoost classification wrapper for ensemble.
+    Called by main.py for hierarchical classification.
+    """
     tuner = XGBoostTuner(X_train, y_train, X_test, y_test, 
                          random_state=random_state, n_trials=n_trials, timeout=timeout)
 
