@@ -451,7 +451,7 @@ python3 scripts/ensemble/main.py
 
 ## 🙏 Acknowledgements
 
-> Supervised by Eran Elhaik, with input from Bijan Mousavi and Sreejith.  
+> Supervised by Eran Elhaik, with input from Bijan Mousavi and Sreejith Remanan Pushpa.  
 > For questions or contributions, open an issue or contact [Chandrashekar CR](mailto:ch1131ch-s@student.lu.se)
 
 ---
