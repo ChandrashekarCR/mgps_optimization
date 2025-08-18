@@ -36,9 +36,22 @@
 /report/main.tex
 /report/main.bbl
 /report/main.blg
-/report/figures
 /report/supplementary
-/report/workflows
+/report/workflows/combined_neural_networks.log
+/report/workflows/combined_neural_networks.aux
+/report/workflows/combined_neural_networks.pdf
+/report/workflows/combined_neural_networks.tex
+/report/workflows/data_splitting.aux
+/report/workflows/data_splitting.log
+/report/workflows/data_splitting.tex
+/report/workflows/ensemble_learner.aux
+/report/workflows/ensemble_learner.log
+/report/workflows/ensemble_learner.tex
+/report/workflows/ensemble_learner.pdf
+/report/workflows/separate_neural_networks.aux
+/report/workflows/separate_neural_networks.log
+/report/workflows/separate_neural_networks.tex
+/report/workflows/separate_neural_networks.pdf
 
 # ignore metasub results
 /results/metasub/taxonomic_info.csv
