@@ -67,22 +67,23 @@ Accurate prediction of sample origin from microbial signatures is crucial for bi
 ```
 binp37/
 ├── data/                # Raw and processed data
-│   ├── metasub/         # MetaSUB dataset
+│   ├── metasub/         # MetaSUB dataset and metadata
 │   ├── geopandas/       # Geospatial mapping data
-├── notebooks/           # Jupyter notebooks
-├── scripts/             # Preprocessing, modeling, feature engineering
-│   ├── feature_engineering/  # Feature selection and taxonomic enrichment
-│   ├── grownet/         # Hierarchical boosted neural networks
-│   ├── nn_models/       # Separate and combined neural networks
-│   ├── ensemble/        # Full ensemble pipeline
-├── report/              # LaTeX manuscript source
-│   ├── abstract/
-│   ├── introduction/
-│   ├── methods/
-│   ├── results/
-│   ├── discussions/
-│   ├── references/
-├── .gitignore           # Version control exclusions
+├── notebooks/           # Jupyter notebooks for analysis and visualization
+├── scripts/             # Source code for preprocessing, modeling, and feature engineering
+│   ├── data_preprocess/         # Data cleaning and preparation scripts
+│   ├── feature_engineering/     # Feature selection and taxonomic enrichment
+│   ├── nn_models/               # Neural network models (separate & combined)
+│   ├── grownet/                 # GrowNet and hierarchical boosting models
+│   ├── ensemble/                # Ensemble learning pipeline and model scripts
+├── report/              # LaTeX manuscript and figures
+│   ├── figures/         # Plots and diagrams for the manuscript
+│   ├── workflows/       # Workflow diagrams (PDF/TEX)
+|   ├──main.pdf          # Report
+├── results/             # Model outputs and processed datasets
+│   ├── metasub/
+├── environment.yml      # Conda environment specification
+├── README.md            # Project documentation
 ```
 
 ---
