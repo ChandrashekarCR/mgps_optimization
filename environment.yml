@@ -1,4 +1,4 @@
-name: binp37_test
+name: binp37_env
 channels:
   - nvidia
   - pytorch
@@ -287,4 +287,4 @@ dependencies:
       - tabpfn-extensions==0.0.4
       - triton==3.3.1
       - xxhash==3.5.0
-prefix: /home/chandru/.conda/envs/binp37_test
+prefix: /home/chandru/.conda/envs/binp37_env

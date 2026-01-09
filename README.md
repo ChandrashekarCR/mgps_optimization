@@ -114,6 +114,8 @@ cd mgps_optimization
 
 ### 2. Set up the environment
 ```sh
+module avail CUDA
+module load CUDA/12.8.0
 conda env create -f environment.yml
 conda activate binp37_env
 ```
