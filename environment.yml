@@ -1,4 +1,4 @@
-name: binp37_env
+name: binp37_test
 channels:
   - bioconda
   - conda-forge
@@ -124,7 +124,7 @@ dependencies:
   - libgomp=15.1.0=h767d61c_3
   - libiconv=1.18=h4ce23a2_1
   - libkml=1.3.0=h096b73e_7
-  - liblightgbm=4.6.0=cuda_h3896ea8_2
+  - liblightgbm=4.6.0
   - liblzma=5.8.1=hb9d3cd8_2
   - liblzma-devel=5.8.1=hb9d3cd8_2
   - libmpdec=4.0.0=hb9d3cd8_0
@@ -150,7 +150,7 @@ dependencies:
   - libxml2=2.13.8=hfdd30dd_0
   - libzip=1.10.1=h2629f0a_3
   - libzlib=1.2.13=h4ab18f5_6
-  - lightgbm=4.6.0=cuda_py_2
+  - lightgbm=4.6.0
   - lz4-c=1.9.4=h6a678d5_1
   - mapclassify=2.9.0=pyhd8ed1ab_0
   - markupsafe=3.0.2=py313h8060acc_1
@@ -305,4 +305,4 @@ dependencies:
       - torchvision==0.22.1+cu118
       - triton==3.3.1
       - xxhash==3.5.0
-prefix: /home/chandru/.conda/envs/binp37_env
+prefix: /home/chandru/.conda/envs/binp37_test
