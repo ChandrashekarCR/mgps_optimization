@@ -124,7 +124,6 @@ dependencies:
   - libgomp=15.1.0=h767d61c_3
   - libiconv=1.18=h4ce23a2_1
   - libkml=1.3.0=h096b73e_7
-  - liblightgbm=4.6.0
   - liblzma=5.8.1=hb9d3cd8_2
   - liblzma-devel=5.8.1=hb9d3cd8_2
   - libmpdec=4.0.0=hb9d3cd8_0
