@@ -1,5 +1,6 @@
 name: binp37_test
 channels:
+  - nvidia
   - pytorch
   - bioconda
   - conda-forge
